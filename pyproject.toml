@@ -1,0 +1,39 @@
+[project]
+name = "atlas-posthoc-plus"
+version = "0.1.0"
+description = "Configuration-driven orchestration for project-specific AtlasIO post-processing workflows"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "atlas-posthoc",
+    "geopandas",
+    "matplotlib",
+    "numpy",
+    "openpyxl",
+    "pandas",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[project.scripts]
+atlas-posthoc-plus = "atlas_posthoc_plus.cli:main"
+aph-plus = "atlas_posthoc_plus.cli:main"
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

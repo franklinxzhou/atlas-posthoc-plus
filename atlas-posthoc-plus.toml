@@ -1,0 +1,75 @@
+[project]
+root = "../oh-gerrymandering"
+
+[chains]
+files = [
+  "outputs/chains/soft_constraint/congressional/run37_cntyw20.0_mcdw20.0_isoWeight0.25.jsonl",
+  "outputs/chains/soft_constraint/congressional/run38_cntyw20.0_mcdw20.0_isoWeight0.25.jsonl",
+  "outputs/chains/soft_constraint/congressional/run39_cntyw20.0_mcdw20.0_isoWeight0.25.jsonl",
+  "outputs/chains/soft_constraint/congressional/run40_cntyw20.0_mcdw20.0_isoWeight0.25.jsonl",
+]
+ids = ["run37", "run38", "run39", "run40"]
+
+[analysis]
+n_districts = 15
+max_districts_per_county = 2
+max_maps_per_chain = 1001
+output_frequency = 50000
+total_proposals = 50000000
+ousted_scale = "share"
+area_crs = "EPSG:26917"
+
+[inputs]
+graph_json = "data/graph/OHpct20.json"
+crosswalk_csv = "scripts/oh_block_to_precinct_crosswalk.csv"
+plan_manifest = "scripts/manifest.csv"
+blocks = "data/raw/tl_2024_39_tabblock20/tl_2024_39_tabblock20.shp"
+precincts = "data/derived/pctSF_OH/pctSF_OH.shp"
+block_metadata = "data/raw/tl_2024_39_tabblock20/tl_2024_39_tabblock20.shp"
+block_shapefile = "data/raw/tl_2024_39_tabblock20/tl_2024_39_tabblock20.shp"
+mcd_shapefile = "data/raw/tl_2024_39_cousub/tl_2024_39_cousub.shp"
+target_precincts = "data/derived/pctSF_OH/pctSF_OH.shp"
+cvap_file = "data/raw/oh_cvap_2023_b.zip"
+public_plan_dir = "scripts/plans/public/combined_21_25"
+other_csv = "data/other_ensembles/OH.csv"
+other_geojson = "data/other_ensembles/OH.geojson"
+traces_json_mcd20 = "../atlas-posthoc/outputs/smoke_full_four_chains_37_40/diagnostics/municipal_split_traces.json"
+traces_json_mcd5 = "../atlas-posthoc/outputs/smoke_full_four_chains_53_56/diagnostics/municipal_split_traces.json"
+traces_json_mcd1 = "../atlas-posthoc/outputs/smoke_full_four_chains_57_60/diagnostics/municipal_split_traces.json"
+
+[plans]
+enacted = "scripts/plans/October 31 2025 CD BAF.xlsx"
+overturned = "scripts/plans/SubSB258-Block-Assignment-File.xlsx"
+remedial = "scripts/plans/March 2 2022 CD BAF.xlsx"
+
+[columns]
+block_id = "GEOID20"
+block_county = "COUNTYFP20"
+block_population = "POP20"
+precinct_name = "NAME"
+population = "POP20"
+official_key = "ORIG_NAME"
+mcd_county = "COUNTYFP"
+mcd_id = "COUSUBFP"
+
+[elections.layers]
+2016 = "data/raw/oh_vest_16/oh_vest_16.shp"
+2018 = "data/raw/oh_vest_18/oh_vest_18.shp"
+2020 = "data/raw/oh_vest_20/oh_vest_20.shp"
+2022 = "data/raw/oh_gen_2022_prec/oh_2022_gen_prec_st.shp"
+2024 = "data/raw/oh_2024_gen_prec/oh_2024_gen_all_prec/oh_2024_gen_all_prec.shp"
+
+[outputs]
+root = "../atlas-posthoc-plus/outputs"
+
+[workflow.polsby-trace]
+metric = "average"
+
+[workflow.municipal-tradeoff-weights]
+reuse_official_summary = true
+reuse_public_summary = true
+
+[workflow.municipal-tradeoff-weights-external]
+include_other_ensemble = true
+reuse_official_summary = true
+reuse_public_summary = true
