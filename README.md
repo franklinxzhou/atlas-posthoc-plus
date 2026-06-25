@@ -173,7 +173,9 @@ The configured suites connect multi-stage analyses automatically:
 - `official-polsby` creates the reference CSV used by `polsby-trace`.
 - `polsby-histogram` consumes `atlas-posthoc`'s
   `diagnostics/polsby_popper_traces.json` and can overlay the `official-polsby`
-  summary CSV plus an optional public-plan score CSV.
+  summary CSV. If `inputs.public_plan_dir`, `inputs.graph_json`, and
+  `inputs.crosswalk_csv` are configured, it also computes and caches public-plan
+  Polsby-Popper scores.
 - `responsiveness` creates the CSV files used by `responsiveness-zoom`.
 
 Explicit paths in `[inputs]` override these generated defaults.
@@ -185,12 +187,18 @@ To plot an ensemble compactness histogram from `atlas-posthoc` output:
 ```toml
 [inputs]
 polsby_traces_json = "atlas-posthoc-output/diagnostics/polsby_popper_traces.json"
-public_polsby_scores_csv = "outputs/polsby/public-plan-scores.csv" # optional
+public_plan_dir = "inputs/plans/public"         # optional, for public overlays
+graph_json = "inputs/graph.json"                # needed to score public plans
+crosswalk_csv = "inputs/block_to_precinct.csv"  # needed to score public plans
+# public_polsby_scores_csv = "outputs/polsby/public-plan-scores.csv"
+# Optional: use this only if you already have a precomputed public score CSV.
 
 [workflow.polsby-histogram]
 stat = "average"  # average, minimum, or maximum
 burnin = 0
 bins = 40
+public_score_method = "graph"  # or "blocks" for slower block-geometry scoring
+refresh_public_scores = false
 ```
 
 Then run:
@@ -201,6 +209,13 @@ atlas-posthoc-plus run polsby-histogram
 
 The official overlay can use either a legacy `label,score` CSV or the
 `official-polsby` summary CSV with `plan,average,minimum,maximum` columns.
+Public submitted plans are discovered from `inputs.public_plan_dir`, mapped to
+graph nodes through the block-to-precinct crosswalk, scored with
+`atlas-posthoc`'s graph compactness audit, and cached at
+`outputs/polsby/public-plan-scores.csv` by default. Re-running the workflow
+reuses that cache unless `refresh_public_scores = true`. Set
+`public_score_method = "blocks"` only when you want slower block-geometry
+scoring.
 
 ## Comparing arbitrary municipal trace collections
 

@@ -698,6 +698,43 @@ _register(
         (
             Binding("--ensemble-pp-json", "inputs.polsby_traces_json", "path", required=True),
             Binding("--public-scores-csv", "inputs.public_polsby_scores_csv", "path"),
+            Binding("--public-plan-dir", "inputs.public_plan_dir", "path"),
+            Binding(
+                "--public-scores-out",
+                "outputs.public_polsby_scores_csv",
+                "path",
+                default=OutputDefault("polsby/public-plan-scores.csv"),
+            ),
+            Binding(
+                "--public-score-method",
+                "workflow.polsby-histogram.public_score_method",
+                default="graph",
+            ),
+            Binding(
+                "--refresh-public-scores",
+                "workflow.polsby-histogram.refresh_public_scores",
+                "flag",
+            ),
+            Binding("--graph-json", "inputs.graph_json", "path"),
+            Binding("--crosswalk-csv", "inputs.crosswalk_csv", "path"),
+            Binding("--graph-key-col", "columns.official_key", default="ORIG_NAME"),
+            Binding("--node-id-col", "workflow.polsby-histogram.node_id_col", default="id"),
+            Binding("--area-col", "workflow.polsby-histogram.area_col", default="area"),
+            Binding(
+                "--border-length-col",
+                "workflow.polsby-histogram.border_length_col",
+                default="border_length",
+            ),
+            Binding("--edge-length-col", "workflow.polsby-histogram.edge_length_col"),
+            Binding("--block-shapefile", "inputs.block_shapefile", "path"),
+            Binding("--block-col", "columns.block_id"),
+            Binding("--projected-crs", "analysis.polsby_projected_crs", default="EPSG:5070"),
+            Binding("--expected-districts", "analysis.n_districts", default=15),
+            Binding("--assignment-block-col", "workflow.polsby-histogram.assignment_block_col"),
+            Binding(
+                "--assignment-district-col",
+                "workflow.polsby-histogram.assignment_district_col",
+            ),
             Binding(
                 "--official-scores-csv",
                 "inputs.official_polsby_summary_csv",
