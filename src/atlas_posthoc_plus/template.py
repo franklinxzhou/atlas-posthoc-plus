@@ -35,11 +35,13 @@ cvap_file = "inputs/cvap.zip"
 public_plan_dir = "inputs/plans/public"
 other_csv = "inputs/external/ensemble.csv"
 other_geojson = "inputs/external/units.geojson"
+polsby_traces_json = "outputs/atlas-posthoc/diagnostics/polsby_popper_traces.json"
+public_polsby_scores_csv = "outputs/polsby/public-plan-scores.csv"
 
-# Optional traces for comparing multiple sampler weights.
-traces_json_mcd20 = "inputs/traces/mcd20.json"
-traces_json_mcd5 = "inputs/traces/mcd5.json"
-traces_json_mcd1 = "inputs/traces/mcd1.json"
+[inputs.municipal_trace_collections]
+"MCD weight 20" = "inputs/traces/mcd20.json"
+"MCD weight 5" = "inputs/traces/mcd5.json"
+"MCD weight 1" = "inputs/traces/mcd1.json"
 
 [plans]
 enacted = "inputs/plans/enacted.xlsx"
@@ -68,6 +70,12 @@ root = "outputs"
 
 [workflow.polsby-trace]
 metric = "average"
+
+[workflow.polsby-histogram]
+stat = "average"
+burnin = 0
+bins = 40
+density = false
 
 [workflow.municipal-tradeoff-weights]
 reuse_official_summary = true

@@ -81,6 +81,63 @@ WEIGHT_STYLES = {
     },
 }
 
+COLLECTION_STYLE_CYCLE = [
+    {
+        "marker": "o",
+        "color": "#1f77b4",
+        "facecolors": "none",
+        "edgecolors": "#1f77b4",
+        "linewidths": 1.25,
+        "s": 34,
+        "alpha": 0.36,
+    },
+    {
+        "marker": "^",
+        "color": "#ff7f0e",
+        "facecolors": "#ff7f0e",
+        "edgecolors": "#ff7f0e",
+        "linewidths": 0.65,
+        "s": 34,
+        "alpha": 0.32,
+    },
+    {
+        "marker": "x",
+        "color": "#d62728",
+        "facecolors": "none",
+        "edgecolors": "#d62728",
+        "linewidths": 1.15,
+        "s": 40,
+        "alpha": 0.46,
+    },
+    {
+        "marker": "s",
+        "color": "#2ca02c",
+        "facecolors": "none",
+        "edgecolors": "#2ca02c",
+        "linewidths": 1.0,
+        "s": 34,
+        "alpha": 0.34,
+    },
+    {
+        "marker": "D",
+        "color": "#9467bd",
+        "facecolors": "none",
+        "edgecolors": "#9467bd",
+        "linewidths": 1.0,
+        "s": 34,
+        "alpha": 0.34,
+    },
+    {
+        "marker": "P",
+        "color": "#8c564b",
+        "facecolors": "#8c564b",
+        "edgecolors": "#8c564b",
+        "linewidths": 0.65,
+        "s": 34,
+        "alpha": 0.32,
+    },
+]
+
 OFFICIAL_STYLES = {
     "Enacted ('25)": {
         "marker": "X",
@@ -115,6 +172,13 @@ PUBLIC_STYLE = {
 # =============================================================================
 # Basic IO and normalization
 # =============================================================================
+
+@dataclass(frozen=True)
+class TraceCollection:
+    collection_id: str
+    label: str
+    path: Path
+    style_index: int
 
 
 def load_json(path: str | Path) -> Any:
@@ -269,8 +333,74 @@ def _extract_trace_list(raw: Any, *, path: Path) -> list[dict[str, Any]]:
     return traces
 
 
-def load_traces_for_weight(path: str | Path, *, mcd_weight: str) -> list[dict[str, Any]]:
-    path = Path(path)
+def _collection_id(label: str) -> str:
+    return canonical_colname(label) or "collection"
+
+
+def parse_trace_collection_spec(spec: str, *, style_index: int) -> TraceCollection:
+    if "=" not in spec:
+        raise ValueError(
+            f"Trace collection must be LABEL=PATH, got {spec!r}."
+        )
+    label, path = spec.rsplit("=", 1)
+    label = label.strip()
+    path = path.strip()
+    if not label:
+        raise ValueError(f"Trace collection label is empty in {spec!r}.")
+    if not path:
+        raise ValueError(f"Trace collection path is empty in {spec!r}.")
+    return TraceCollection(
+        collection_id=f"{style_index}:{_collection_id(label)}",
+        label=label,
+        path=Path(path),
+        style_index=style_index,
+    )
+
+
+def legacy_trace_collections(args: argparse.Namespace) -> list[TraceCollection]:
+    specs = [
+        TraceCollection(
+            collection_id="20",
+            label=WEIGHT_STYLES["20"]["label"],
+            path=Path(args.traces_json_mcd20),
+            style_index=0,
+        ),
+        TraceCollection(
+            collection_id="5",
+            label=WEIGHT_STYLES["5"]["label"],
+            path=Path(args.traces_json_mcd5),
+            style_index=1,
+        ),
+        TraceCollection(
+            collection_id="1",
+            label=WEIGHT_STYLES["1"]["label"],
+            path=Path(args.traces_json_mcd1),
+            style_index=2,
+        ),
+    ]
+    return [spec for spec in specs if str(spec.path)]
+
+
+def trace_collections_from_args(args: argparse.Namespace) -> list[TraceCollection]:
+    if args.trace_collection:
+        return [
+            parse_trace_collection_spec(spec, style_index=i)
+            for i, spec in enumerate(args.trace_collection)
+        ]
+    return legacy_trace_collections(args)
+
+
+def collection_style(collection: str, *, style_index: int, label: str) -> dict[str, Any]:
+    if collection in WEIGHT_STYLES:
+        style = dict(WEIGHT_STYLES[collection])
+    else:
+        style = dict(COLLECTION_STYLE_CYCLE[style_index % len(COLLECTION_STYLE_CYCLE)])
+    style["label"] = label
+    return style
+
+
+def load_traces_for_collection(spec: TraceCollection) -> list[dict[str, Any]]:
+    path = spec.path
     raw = load_json(path)
     traces = _extract_trace_list(raw, path=path)
 
@@ -284,10 +414,13 @@ def load_traces_for_weight(path: str | Path, *, mcd_weight: str) -> list[dict[st
             raise ValueError(f"Trace item {i} in {path} is missing keys {missing}.")
 
         row = dict(item)
-        row["mcd_weight"] = str(mcd_weight)
+        row["collection"] = spec.collection_id
+        row["collection_label"] = spec.label
+        row["collection_style_index"] = spec.style_index
+        row["mcd_weight"] = spec.collection_id
         row["trace_source"] = str(path)
         if "chain_id" not in row:
-            row["chain_id"] = f"mcd_w={mcd_weight}:chain{i + 1}"
+            row["chain_id"] = f"{spec.label}:chain{i + 1}"
         else:
             row["chain_id"] = str(row["chain_id"])
         out.append(row)
@@ -296,15 +429,10 @@ def load_traces_for_weight(path: str | Path, *, mcd_weight: str) -> list[dict[st
 
 
 def load_all_traces(args: argparse.Namespace) -> list[dict[str, Any]]:
-    trace_paths = {
-        "20": args.traces_json_mcd20,
-        "5": args.traces_json_mcd5,
-        "1": args.traces_json_mcd1,
-    }
     all_traces: list[dict[str, Any]] = []
-    for weight, path in trace_paths.items():
-        loaded = load_traces_for_weight(path, mcd_weight=weight)
-        print(f"Loaded mcd_w={weight}: {len(loaded)} chains from {path}")
+    for spec in trace_collections_from_args(args):
+        loaded = load_traces_for_collection(spec)
+        print(f"Loaded {spec.label}: {len(loaded)} chains from {spec.path}")
         all_traces.extend(loaded)
     return all_traces
 
@@ -871,20 +999,34 @@ def plot_tradeoff(
     label_references: bool,
     label_public: bool,
     max_points_per_chain: int | None,
+    warning_text: str | None,
 ) -> None:
     fig, ax = plt.subplots(figsize=(13.0, 8.0))
 
-    plotted_weights: set[str] = set()
+    plotted_collections: set[str] = set()
+    collection_order: list[str] = []
+    collection_styles: dict[str, dict[str, Any]] = {}
 
-    # Ensemble cloud, drawn chain-by-chain but labeled by MCD weight.
+    # Ensemble cloud, drawn chain-by-chain but labeled by collection.
     for item in traces:
-        weight = str(item.get("mcd_weight"))
-        style = WEIGHT_STYLES.get(weight, WEIGHT_STYLES["20"])
+        collection = str(item.get("collection", item.get("mcd_weight", "collection")))
+        collection_label = str(item.get("collection_label", collection))
+        style_index = int(item.get("collection_style_index", 0))
+        style = collection_style(
+            collection,
+            style_index=style_index,
+            label=collection_label,
+        )
+        collection_styles.setdefault(collection, style)
         x, y = finite_arrays(item, y_key)
         x, y = maybe_thin(x, y, max_points=max_points_per_chain)
 
-        label = style["label"] if weight not in plotted_weights else None
-        plotted_weights.add(weight)
+        if collection not in plotted_collections:
+            collection_order.append(collection)
+            label = style["label"]
+        else:
+            label = None
+        plotted_collections.add(collection)
 
         scatter_kwargs = {
             "x": x,
@@ -894,7 +1036,7 @@ def plot_tradeoff(
             "linewidths": style["linewidths"],
             "alpha": style["alpha"],
             "label": label,
-            "zorder": 2 if weight != "1" else 3,
+            "zorder": 2,
         }
         if style["marker"] in {"x", "+"}:
             scatter_kwargs["color"] = style["color"]
@@ -992,27 +1134,27 @@ def plot_tradeoff(
     if use_percent_axis:
         ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
 
-    warning = "Finite-run diagnostic only: mcd_w=1 chains have not fully mixed."
-    ax.text(
-        0.02,
-        0.98,
-        warning,
-        transform=ax.transAxes,
-        ha="left",
-        va="top",
-        fontsize=12,
-        fontweight="bold",
-        bbox={"boxstyle": "round,pad=0.35", "fc": "white", "ec": "#d62728", "alpha": 0.95},
-        zorder=30,
-    )
+    if warning_text:
+        ax.text(
+            0.02,
+            0.98,
+            warning_text,
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=12,
+            fontweight="bold",
+            bbox={"boxstyle": "round,pad=0.35", "fc": "white", "ec": "#d62728", "alpha": 0.95},
+            zorder=30,
+        )
 
     ax.grid(alpha=0.25)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
-    weight_handles = []
-    for weight in ["20", "5", "1"]:
-        style = WEIGHT_STYLES[weight]
+    collection_handles = []
+    for collection in collection_order:
+        style = collection_styles[collection]
         if style["marker"] in {"x", "+"}:
             handle = Line2D(
                 [0],
@@ -1038,7 +1180,7 @@ def plot_tradeoff(
                 label=style["label"],
                 alpha=0.95,
             )
-        weight_handles.append(handle)
+        collection_handles.append(handle)
 
     public_handles = []
     if public_summaries:
@@ -1072,8 +1214,8 @@ def plot_tradeoff(
     ]
 
     legend1 = ax.legend(
-        handles=weight_handles,
-        title="Finite-run chains",
+        handles=collection_handles,
+        title="Plan collections",
         loc="upper right",
         frameon=True,
         fontsize=10.5,
@@ -1128,12 +1270,32 @@ def parse_official_plan_args(args: argparse.Namespace) -> dict[str, str]:
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description=(
-            "Make a finite-run municipal-split tradeoff plot for mcd_w=20, "
-            "mcd_w=5, and mcd_w=1 chains, with official and public plans overlaid."
+            "Make a finite-run municipal-split tradeoff plot comparing arbitrary "
+            "atlas-posthoc municipal_split_traces.json collections, with official "
+            "and public plans overlaid."
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
+    p.add_argument(
+        "--trace-collection",
+        dest="trace_collection",
+        action="append",
+        default=[],
+        metavar="LABEL=PATH",
+        help=(
+            "Collection to overlay, where PATH is an atlas-posthoc "
+            "diagnostics/municipal_split_traces.json file. May be repeated. "
+            "If omitted, the legacy --traces-json-mcd20/5/1 inputs are used."
+        ),
+    )
+    p.add_argument(
+        "--traces-json",
+        dest="trace_collection",
+        action="append",
+        metavar="LABEL=PATH",
+        help=argparse.SUPPRESS,
+    )
     p.add_argument("--traces-json-mcd20", default=DEFAULT_TRACES["20"])
     p.add_argument("--traces-json-mcd5", default=DEFAULT_TRACES["5"])
     p.add_argument("--traces-json-mcd1", default=DEFAULT_TRACES["1"])
@@ -1165,6 +1327,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Use large official-plan markers and legend only; do not annotate official plans.",
     )
+    p.add_argument(
+        "--warning-text",
+        default=None,
+        help="Optional text box to place in the upper-left of the plot.",
+    )
 
     # Official plan options.
     p.add_argument("--official-overturned", default=None)
@@ -1182,9 +1349,14 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--official-block-col", default=None)
     p.add_argument("--official-district-col", default=None)
+    p.add_argument(
+        "--skip-official-plans",
+        action="store_true",
+        help="Do not overlay enacted/overturned/remedial official plans.",
+    )
 
     # Public plan options.
-    p.add_argument("--public-plan-dir", default="inputs/plans/public")
+    p.add_argument("--public-plan-dir", default=None)
     p.add_argument(
         "--public-summary-json",
         default="outputs/public_plan_municipal_summaries.json",
@@ -1245,10 +1417,45 @@ def main() -> None:
         y_label = "Ousted MCD population"
         use_percent_axis = False
 
-    official_summaries: dict[str, Any]
+    official_summaries: dict[str, Any] = {}
     public_summaries: list[dict[str, Any]] = []
 
-    needs_block_nodes = not (args.reuse_official_summary and args.reuse_public_summary)
+    official_summary_path = Path(args.official_summary_json)
+    public_summary_path = Path(args.public_summary_json)
+
+    reuse_official = (
+        args.reuse_official_summary
+        and not args.skip_official_plans
+        and official_summary_path.exists()
+    )
+    compute_official = not args.skip_official_plans and not reuse_official
+
+    if (
+        args.reuse_official_summary
+        and not args.skip_official_plans
+        and not official_summary_path.exists()
+    ):
+        print(
+            f"Official summary cache not found: {official_summary_path}; "
+            "recomputing it."
+        )
+
+    reuse_public = args.reuse_public_summary and public_summary_path.exists()
+    compute_public = bool(args.public_plan_dir) and not reuse_public
+
+    if args.reuse_public_summary and not public_summary_path.exists():
+        if args.public_plan_dir:
+            print(
+                f"Public summary cache not found: {public_summary_path}; "
+                "recomputing it."
+            )
+        else:
+            print(
+                f"Public summary cache not found: {public_summary_path}; "
+                "no --public-plan-dir was provided, so public plans are skipped."
+            )
+
+    needs_block_nodes = compute_official or compute_public
     block_nodes: list[dict[str, Any]] | None = None
     if needs_block_nodes:
         block_nodes = read_block_metadata(
@@ -1262,12 +1469,12 @@ def main() -> None:
             mcd_shape_mcd_col=args.mcd_shape_mcd_col,
         )
 
-    if args.reuse_official_summary:
-        official_summaries = load_json(args.official_summary_json)
+    if reuse_official:
+        official_summaries = load_json(official_summary_path)
         if not isinstance(official_summaries, dict):
             raise ValueError("--official-summary-json must contain a dict keyed by official plan label.")
         print(f"Loaded official summaries: {len(official_summaries):,}")
-    else:
+    elif compute_official:
         assert block_nodes is not None
         official_summaries = summarize_official_plans(
             official_plan_specs=parse_official_plan_args(args),
@@ -1277,15 +1484,15 @@ def main() -> None:
             official_block_col=args.official_block_col,
             official_district_col=args.official_district_col,
         )
-        write_json(args.official_summary_json, official_summaries)
-        print(f"Wrote official summaries: {args.official_summary_json}")
+        write_json(official_summary_path, official_summaries)
+        print(f"Wrote official summaries: {official_summary_path}")
 
-    if args.reuse_public_summary:
-        public_summaries = load_json(args.public_summary_json)
+    if reuse_public:
+        public_summaries = load_json(public_summary_path)
         if not isinstance(public_summaries, list):
             raise ValueError("--public-summary-json must contain a list of public-plan summaries.")
         print(f"Loaded public summaries: {len(public_summaries):,}")
-    elif args.public_plan_dir:
+    elif compute_public:
         assert block_nodes is not None
         manifest_rows, public_summaries = process_public_plans(
             public_plan_dir=args.public_plan_dir,
@@ -1303,8 +1510,8 @@ def main() -> None:
             print(f"Wrote public manifest: {manifest_path}")
 
         if args.public_summary_json:
-            write_json(args.public_summary_json, public_summaries)
-            print(f"Wrote public summaries: {args.public_summary_json}")
+            write_json(public_summary_path, public_summaries)
+            print(f"Wrote public summaries: {public_summary_path}")
 
     plot_tradeoff(
         traces=traces,
@@ -1318,6 +1525,7 @@ def main() -> None:
         label_references=not args.no_labels,
         label_public=args.label_public,
         max_points_per_chain=args.max_points_per_chain,
+        warning_text=args.warning_text,
     )
 
 

@@ -8,3 +8,8 @@ dist/
 build/
 
 outputs/
+
+.DS_Store
+src/.DS_Store
+src/atlas_posthoc_plus/.DS_Store
+tests/.DS_Store

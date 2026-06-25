@@ -171,9 +171,67 @@ The configured suites connect multi-stage analyses automatically:
 - `municipal-histograms-compliant` creates the compliant municipal trace JSON
   and reference-plan summary JSON used by the derived municipal workflows.
 - `official-polsby` creates the reference CSV used by `polsby-trace`.
+- `polsby-histogram` consumes `atlas-posthoc`'s
+  `diagnostics/polsby_popper_traces.json` and can overlay the `official-polsby`
+  summary CSV plus an optional public-plan score CSV.
 - `responsiveness` creates the CSV files used by `responsiveness-zoom`.
 
 Explicit paths in `[inputs]` override these generated defaults.
+
+## Polsby-Popper histogram
+
+To plot an ensemble compactness histogram from `atlas-posthoc` output:
+
+```toml
+[inputs]
+polsby_traces_json = "atlas-posthoc-output/diagnostics/polsby_popper_traces.json"
+public_polsby_scores_csv = "outputs/polsby/public-plan-scores.csv" # optional
+
+[workflow.polsby-histogram]
+stat = "average"  # average, minimum, or maximum
+burnin = 0
+bins = 40
+```
+
+Then run:
+
+```bash
+atlas-posthoc-plus run polsby-histogram
+```
+
+The official overlay can use either a legacy `label,score` CSV or the
+`official-polsby` summary CSV with `plan,average,minimum,maximum` columns.
+
+## Comparing arbitrary municipal trace collections
+
+`municipal-tradeoff-weights` and `municipal-tradeoff-weights-external` can
+compare any number of `atlas-posthoc` municipal trace outputs. In the TOML file,
+use a label-to-path table:
+
+```toml
+[inputs.municipal_trace_collections]
+"Congress base chain" = "atlas-posthoc/base/diagnostics/municipal_split_traces.json"
+"Higher MCD penalty" = "atlas-posthoc/mcd20/diagnostics/municipal_split_traces.json"
+"External lab ensemble" = "atlas-posthoc/external/diagnostics/municipal_split_traces.json"
+```
+
+The table key is used as the legend label. The same thing can be passed directly
+on the command line:
+
+```bash
+atlas-posthoc-plus run municipal-tradeoff-weights -- \
+  --trace-collection "Congress base chain=atlas-posthoc/base/diagnostics/municipal_split_traces.json" \
+  --trace-collection "Higher MCD penalty=atlas-posthoc/mcd20/diagnostics/municipal_split_traces.json"
+```
+
+The older `inputs.traces_json_mcd20`, `inputs.traces_json_mcd5`, and
+`inputs.traces_json_mcd1` keys are still supported as compatibility shortcuts.
+
+If `reuse_official_summary` or `reuse_public_summary` is enabled but the cached
+JSON does not exist yet, the workflow recomputes the missing summary from the
+configured plan/block inputs and writes it under `outputs.root`. To make a
+collection-only plot without official-plan overlays, pass `--skip-official-plans`
+after `--`.
 
 ## Workflow inventory
 
@@ -186,6 +244,7 @@ Explicit paths in `[inputs]` override these generated defaults.
 | `cut-edges-compliant` | `workflows.compactness.cut_edges` | Cut-edge distribution |
 | `official-polsby` | `workflows.compactness.official_polsby` | Official-plan compactness CSVs |
 | `polsby-trace` | `workflows.compactness.polsby_trace` | Compactness trace with references |
+| `polsby-histogram` | `workflows.compactness.polsby_histogram` | Compactness histogram with public/official overlays |
 | `ranked-vote-cvap` | `workflows.demographics.ranked_vote_cvap` | Vote/CVAP ranked comparison |
 | `responsiveness` | `workflows.elections.responsiveness` | Multi-election responsiveness |
 | `responsiveness-zoom` | `workflows.elections.responsiveness_zoom` | Zoomed responsiveness panels |
@@ -193,7 +252,7 @@ Explicit paths in `[inputs]` override these generated defaults.
 | `municipal-distributions` | `workflows.municipal.distributions` | Chain-wise municipal distributions |
 | `municipal-tradeoff` | `workflows.municipal.tradeoff` | Cut/ousted-population tradeoff |
 | `municipal-tradeoff-public` | `workflows.municipal.tradeoff_public` | Public-plan tradeoff |
-| `municipal-tradeoff-weights` | `workflows.municipal.tradeoff_weights` | MCD-weight comparison |
+| `municipal-tradeoff-weights` | `workflows.municipal.tradeoff_weights` | Multi-collection municipal tradeoff |
 
 The registry also retains the unadjusted vote comparison and optional
 external-ensemble workflows.

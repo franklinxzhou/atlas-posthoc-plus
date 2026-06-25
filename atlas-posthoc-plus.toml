@@ -33,9 +33,12 @@ cvap_file = "data/raw/oh_cvap_2023_b.zip"
 public_plan_dir = "scripts/plans/public/combined_21_25"
 other_csv = "data/other_ensembles/OH.csv"
 other_geojson = "data/other_ensembles/OH.geojson"
-traces_json_mcd20 = "../atlas-posthoc/outputs/smoke_full_four_chains_37_40/diagnostics/municipal_split_traces.json"
-traces_json_mcd5 = "../atlas-posthoc/outputs/smoke_full_four_chains_53_56/diagnostics/municipal_split_traces.json"
-traces_json_mcd1 = "../atlas-posthoc/outputs/smoke_full_four_chains_57_60/diagnostics/municipal_split_traces.json"
+polsby_traces_json = "../atlas-posthoc/outputs/smoke_full_four_chains_37_40/diagnostics/polsby_popper_traces.json"
+
+[inputs.municipal_trace_collections]
+"mcd_w=20, runs 37-40" = "../atlas-posthoc/outputs/smoke_full_four_chains_37_40/diagnostics/municipal_split_traces.json"
+"mcd_w=5, runs 53-56" = "../atlas-posthoc/outputs/smoke_full_four_chains_53_56/diagnostics/municipal_split_traces.json"
+"mcd_w=1, runs 57-60; not fully mixed" = "../atlas-posthoc/outputs/smoke_full_four_chains_57_60/diagnostics/municipal_split_traces.json"
 
 [plans]
 enacted = "scripts/plans/October 31 2025 CD BAF.xlsx"
@@ -64,6 +67,12 @@ root = "../atlas-posthoc-plus/outputs"
 
 [workflow.polsby-trace]
 metric = "average"
+
+[workflow.polsby-histogram]
+stat = "average"
+burnin = 0
+bins = 40
+density = false
 
 [workflow.municipal-tradeoff-weights]
 reuse_official_summary = true
