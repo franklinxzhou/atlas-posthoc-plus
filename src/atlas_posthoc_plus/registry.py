@@ -639,6 +639,7 @@ _register(
             ),
             MAX_COUNTY,
             N_DISTRICTS,
+            MAX_MAPS,
         ),
     )
 )

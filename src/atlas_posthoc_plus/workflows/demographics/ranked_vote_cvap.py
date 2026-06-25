@@ -307,28 +307,98 @@ def chain_id_from_path(path: str | Path) -> str:
     return Path(path).stem
 
 
-def atlasio_districting_to_series(
-    districting: Any,
+def build_node_key_lookup(
     graph_nodes: pd.DataFrame,
     *,
-    key_col: str = "NAME",
-    node_id_col: str = "id",
-) -> pd.Series:
+    key_col: str,
+    node_id_col: str,
+) -> tuple[dict[str, int], tuple[int, ...]]:
     if key_col not in graph_nodes.columns:
         raise ValueError(f"key_col={key_col!r} not found in graph nodes.")
 
     node_key_to_id: dict[str, int] = {}
     duplicate_keys: list[str] = []
+    node_ids: list[int] = []
 
-    for _, row in graph_nodes.iterrows():
-        key = normalize_atlas_key(row[key_col])
-        node_id = int(row[node_id_col])
+    for raw_key, raw_node_id in zip(
+        graph_nodes[key_col].to_numpy(),
+        graph_nodes[node_id_col].to_numpy(),
+        strict=True,
+    ):
+        key = normalize_atlas_key(raw_key)
+        node_id = int(raw_node_id)
+        node_ids.append(node_id)
         if key in node_key_to_id:
             duplicate_keys.append(key)
         node_key_to_id[key] = node_id
 
     if duplicate_keys:
         raise ValueError(f"Duplicate graph keys for {key_col!r}: {duplicate_keys[:5]}")
+
+    return node_key_to_id, tuple(node_ids)
+
+
+def atlasio_districting_to_series(
+    districting: Any,
+    graph_nodes: pd.DataFrame,
+    *,
+    key_col: str = "NAME",
+    node_id_col: str = "id",
+    node_lookup: tuple[dict[str, int], tuple[int, ...]] | None = None,
+) -> pd.Series:
+    if node_lookup is None:
+        node_key_to_id, node_ids = build_node_key_lookup(
+            graph_nodes,
+            key_col=key_col,
+            node_id_col=node_id_col,
+        )
+    else:
+        node_key_to_id, node_ids = node_lookup
+
+    node_id_set = set(node_ids)
+    graph_size = len(node_ids)
+
+    def finish_assignment(out: dict[int, int], unmatched: list[str]) -> pd.Series:
+        if unmatched:
+            raise ValueError(
+                f"{len(unmatched)} AtlasIO districting keys did not match graph {key_col!r}. "
+                f"Examples: {unmatched[:5]}"
+            )
+
+        if len(out) != graph_size:
+            raise ValueError(f"Matched {len(out)} assignments but graph has {graph_size} nodes.")
+
+        s = pd.Series(out, dtype=int)
+        s.index.name = node_id_col
+        return s.sort_index()
+
+    # Atlas-posthoc exposes flattened AtlasIO assignments as a dict. Keys may be
+    # raw AtlasIO strings like '["PRECINCT_KEY"]', canonical tuple keys, or in
+    # some fixture/nonstandard cases direct graph node ids.
+    if isinstance(districting, dict) and districting:
+        out: dict[int, int] = {}
+        unmatched: list[str] = []
+
+        for raw_key, raw_dist in districting.items():
+            key = normalize_atlas_key(raw_key)
+            node_id = node_key_to_id.get(key)
+
+            if node_id is None:
+                raw_node_id = None
+                try:
+                    raw_node_id = coerce_district_label(raw_key)
+                except ValueError:
+                    pass
+                if raw_node_id in node_id_set:
+                    node_id = raw_node_id
+
+            if node_id is None:
+                unmatched.append(key)
+                continue
+
+            out[node_id] = coerce_district_label(raw_dist)
+
+        return finish_assignment(out, unmatched)
 
     # Your AtlasIO format: [{'["PRECINCT_KEY"]': district}, ...]
     if isinstance(districting, list) and districting:
@@ -345,24 +415,13 @@ def atlasio_districting_to_series(
                     continue
                 out[node_id] = coerce_district_label(raw_dist)
 
-            if unmatched:
-                raise ValueError(
-                    f"{len(unmatched)} AtlasIO districting keys did not match graph {key_col!r}. "
-                    f"Examples: {unmatched[:5]}"
-                )
-
-            if len(out) != len(graph_nodes):
-                raise ValueError(f"Matched {len(out)} assignments but graph has {len(graph_nodes)} nodes.")
-
-            s = pd.Series(out, dtype=int)
-            s.index.name = node_id_col
-            return s.sort_index()
+            return finish_assignment(out, unmatched)
 
         # Fallback: node-order list.
-        if len(districting) == len(graph_nodes) and not isinstance(districting[0], (list, tuple, dict, set)):
+        if len(districting) == graph_size and not isinstance(districting[0], (list, tuple, dict, set)):
             s = pd.Series(
                 [coerce_district_label(x) for x in districting],
-                index=graph_nodes[node_id_col].astype(int).to_numpy(),
+                index=node_ids,
                 dtype=int,
             )
             s.index.name = node_id_col
@@ -546,11 +605,17 @@ def build_ensemble_matrices(
     compliant_filter,
     filter_county_compliant: bool,
     max_districts_per_county: int,
+    max_maps_per_chain: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray, pd.DataFrame, pd.DataFrame]:
     dem_rows = []
     black_rows = []
     summary_rows = []
     compliance_rows = []
+    node_lookup = build_node_key_lookup(
+        graph_nodes,
+        key_col=atlas_key_col,
+        node_id_col=node_id_col,
+    )
 
     for chain_file in chain_files:
         chain_id = chain_id_from_path(chain_file)
@@ -565,6 +630,9 @@ def build_ensemble_matrices(
         print(f"Reading chain: {chain_file}")
 
         for record_index, record in enumerate(iter_atlasio_map_records(chain_file)):
+            if max_maps_per_chain is not None and maps_seen >= max_maps_per_chain:
+                break
+
             maps_seen += 1
 
             if not record_is_kept(
@@ -582,6 +650,7 @@ def build_ensemble_matrices(
                     graph_nodes,
                     key_col=atlas_key_col,
                     node_id_col=node_id_col,
+                    node_lookup=node_lookup,
                 )
 
                 comp = county_compliance_summary_for_assignment(
@@ -1064,6 +1133,12 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--county-col", default="COUNTY")
     p.add_argument("--max-districts-per-county", type=int, default=2)
+    p.add_argument(
+        "--max-maps-per-chain",
+        type=int,
+        default=None,
+        help="Optional cap on map records read from each chain.",
+    )
     p.add_argument("--compliance-summary-csv", default=None)
 
     p.add_argument("--atlas-key-col", default="NAME")
@@ -1129,6 +1204,7 @@ def main() -> None:
         compliant_filter=keep_filter,
         filter_county_compliant=not args.no_filter_compliant,
         max_districts_per_county=args.max_districts_per_county,
+        max_maps_per_chain=args.max_maps_per_chain,
     )
 
     compliance_summary_path = (
