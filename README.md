@@ -205,3 +205,7 @@ pytest -q
 python3 -m compileall -q src tests
 python3 -m pip wheel . --no-deps
 ```
+
+## AI Usage Acknowledgement
+
+We acknowledge the use of OpenAI Codex 5.5-xhigh in assembling this package and enabling the one-line call of analysis/plotting suites. The functionality of this package is from a handful of loose scripts in `oh-gerrymandering` repository. 
