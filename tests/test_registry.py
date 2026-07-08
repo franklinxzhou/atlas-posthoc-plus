@@ -2,15 +2,22 @@ import importlib.util
 from pathlib import Path
 
 from atlas_posthoc_plus.config import load_config
-from atlas_posthoc_plus.registry import WORKFLOWS
+from atlas_posthoc_plus.registry import SUITES, WORKFLOWS
 from atlas_posthoc_plus.runner import prepare_workflow
 
 
 def test_all_workflow_modules_are_registered() -> None:
     modules = {spec.module for spec in WORKFLOWS.values()}
-    assert len(WORKFLOWS) == 21
-    assert len(modules) == 21
+    assert len(WORKFLOWS) == 22
+    assert len(modules) == 22
     assert all(importlib.util.find_spec(module) is not None for module in modules)
+
+
+def test_municipal_outside_population_workflow_is_in_inventory() -> None:
+    assert WORKFLOWS["municipal-outside-population-marginals"].module == (
+        "atlas_posthoc_plus.workflows.municipal.outside_population_marginals"
+    )
+    assert "municipal-outside-population-marginals" in SUITES["municipal"]
 
 
 def test_prepare_workflow_builds_absolute_paths(tmp_path: Path) -> None:

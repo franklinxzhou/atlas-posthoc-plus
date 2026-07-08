@@ -149,8 +149,8 @@ Available suites:
 
 - `standard`: vote comparison, compliant municipal analysis, district-rank
   municipal plots, cut edges, Polsby-Popper, CVAP, and responsiveness.
-- `municipal`: derived municipal histograms, distributions, tradeoff, and
-  public-plan comparison.
+- `municipal`: derived municipal histograms, distributions, tradeoff,
+  outside-population marginals, and public-plan comparison.
 - `external`: inspect and summarize the optional outside ensemble.
 - `full`: `standard`, then `municipal`, then the zoomed responsiveness figure.
 
@@ -219,9 +219,10 @@ scoring.
 
 ## Comparing arbitrary municipal trace collections
 
-`municipal-tradeoff-weights` and `municipal-tradeoff-weights-external` can
-compare any number of `atlas-posthoc` municipal trace outputs. In the TOML file,
-use a label-to-path table:
+`municipal-tradeoff-weights`, `municipal-tradeoff-weights-external`, and
+`municipal-outside-population-marginals` can compare any number of
+`atlas-posthoc` municipal trace outputs. In the TOML file, use a label-to-path
+table:
 
 ```toml
 [inputs.municipal_trace_collections]
@@ -237,6 +238,12 @@ on the command line:
 atlas-posthoc-plus run municipal-tradeoff-weights -- \
   --trace-collection "Congress base chain=atlas-posthoc/base/diagnostics/municipal_split_traces.json" \
   --trace-collection "Higher MCD penalty=atlas-posthoc/mcd20/diagnostics/municipal_split_traces.json"
+```
+
+For the outside-population marginal view, use:
+
+```bash
+atlas-posthoc-plus run municipal-outside-population-marginals
 ```
 
 The older `inputs.traces_json_mcd20`, `inputs.traces_json_mcd5`, and
@@ -266,6 +273,7 @@ after `--`.
 | `municipal-histograms` | `workflows.municipal.histograms` | Pooled municipal histograms |
 | `municipal-distributions` | `workflows.municipal.distributions` | Chain-wise municipal distributions |
 | `municipal-tradeoff` | `workflows.municipal.tradeoff` | Cut/ousted-population tradeoff |
+| `municipal-outside-population-marginals` | `workflows.municipal.outside_population_marginals` | Multi-ensemble ousted-population marginals |
 | `municipal-tradeoff-public` | `workflows.municipal.tradeoff_public` | Public-plan tradeoff |
 | `municipal-tradeoff-weights` | `workflows.municipal.tradeoff_weights` | Multi-collection municipal tradeoff |
 

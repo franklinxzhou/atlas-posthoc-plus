@@ -356,6 +356,58 @@ _register(
 
 _register(
     WorkflowSpec(
+        "municipal-outside-population-marginals",
+        "atlas_posthoc_plus.workflows.municipal.outside_population_marginals",
+        "municipal",
+        "Compare ousted MCD population marginals across trace collections.",
+        (
+            Binding(
+                "--trace-collection",
+                "inputs.municipal_trace_collections",
+                "path_mapping",
+            ),
+            Binding("--traces-json-mcd20", "inputs.traces_json_mcd20", "path"),
+            Binding("--traces-json-mcd5", "inputs.traces_json_mcd5", "path"),
+            Binding("--traces-json-mcd1", "inputs.traces_json_mcd1", "path"),
+            Binding(
+                "--reference-json",
+                "inputs.reference_json",
+                "path",
+                default=OutputDefault(
+                    "municipal-compliant/"
+                    "oh_municipal_split_histograms_with_refs_reference_summaries.json"
+                ),
+            ),
+            Binding(
+                "--output",
+                "outputs.municipal_outside_population_marginals",
+                "path",
+                default=OutputDefault(
+                    "municipal/municipal-outside-population-marginals.png"
+                ),
+            ),
+            Binding(
+                "--y-metric",
+                "workflow.municipal-outside-population-marginals.y_metric",
+                default="share",
+            ),
+            Binding(
+                "--include-other-ensemble",
+                "workflow.municipal-outside-population-marginals.include_other_ensemble",
+                "flag",
+            ),
+            Binding("--other-ensemble-summary-json", "inputs.other_summary_json", "path"),
+            Binding(
+                "--skip-official-plans",
+                "workflow.municipal-outside-population-marginals.skip_official_plans",
+                "flag",
+            ),
+        ),
+    )
+)
+
+_register(
+    WorkflowSpec(
         "municipal-tradeoff-public",
         "atlas_posthoc_plus.workflows.municipal.tradeoff_public",
         "municipal",
@@ -921,6 +973,7 @@ PIPELINES: dict[str, tuple[str, ...]] = {
         "municipal-histograms",
         "municipal-distributions",
         "municipal-tradeoff",
+        "municipal-outside-population-marginals",
         "municipal-tradeoff-public",
     ),
     "external": (
