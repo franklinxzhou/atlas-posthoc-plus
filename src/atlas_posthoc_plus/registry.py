@@ -408,6 +408,51 @@ _register(
 
 _register(
     WorkflowSpec(
+        "municipal-cut-mcd-histograms",
+        "atlas_posthoc_plus.workflows.municipal.cut_mcd_histograms",
+        "municipal",
+        "Compare overlaid cut-MCD histograms across trace collections.",
+        (
+            Binding(
+                "--trace-collection",
+                "inputs.municipal_trace_collections",
+                "path_mapping",
+            ),
+            Binding("--traces-json-mcd20", "inputs.traces_json_mcd20", "path"),
+            Binding("--traces-json-mcd5", "inputs.traces_json_mcd5", "path"),
+            Binding("--traces-json-mcd1", "inputs.traces_json_mcd1", "path"),
+            Binding(
+                "--reference-json",
+                "inputs.reference_json",
+                "path",
+                default=OutputDefault(
+                    "municipal-compliant/"
+                    "oh_municipal_split_histograms_with_refs_reference_summaries.json"
+                ),
+            ),
+            Binding(
+                "--output",
+                "outputs.municipal_cut_mcd_histograms",
+                "path",
+                default=OutputDefault("municipal/municipal-cut-mcd-histograms.png"),
+            ),
+            Binding(
+                "--include-other-ensemble",
+                "workflow.municipal-cut-mcd-histograms.include_other_ensemble",
+                "flag",
+            ),
+            Binding("--other-ensemble-summary-json", "inputs.other_summary_json", "path"),
+            Binding(
+                "--skip-official-plans",
+                "workflow.municipal-cut-mcd-histograms.skip_official_plans",
+                "flag",
+            ),
+        ),
+    )
+)
+
+_register(
+    WorkflowSpec(
         "municipal-tradeoff-public",
         "atlas_posthoc_plus.workflows.municipal.tradeoff_public",
         "municipal",
@@ -974,6 +1019,7 @@ PIPELINES: dict[str, tuple[str, ...]] = {
         "municipal-distributions",
         "municipal-tradeoff",
         "municipal-outside-population-marginals",
+        "municipal-cut-mcd-histograms",
         "municipal-tradeoff-public",
     ),
     "external": (

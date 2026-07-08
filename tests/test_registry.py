@@ -8,16 +8,20 @@ from atlas_posthoc_plus.runner import prepare_workflow
 
 def test_all_workflow_modules_are_registered() -> None:
     modules = {spec.module for spec in WORKFLOWS.values()}
-    assert len(WORKFLOWS) == 22
-    assert len(modules) == 22
+    assert len(WORKFLOWS) == 23
+    assert len(modules) == 23
     assert all(importlib.util.find_spec(module) is not None for module in modules)
 
 
-def test_municipal_outside_population_workflow_is_in_inventory() -> None:
+def test_municipal_marginal_workflows_are_in_inventory() -> None:
     assert WORKFLOWS["municipal-outside-population-marginals"].module == (
         "atlas_posthoc_plus.workflows.municipal.outside_population_marginals"
     )
+    assert WORKFLOWS["municipal-cut-mcd-histograms"].module == (
+        "atlas_posthoc_plus.workflows.municipal.cut_mcd_histograms"
+    )
     assert "municipal-outside-population-marginals" in SUITES["municipal"]
+    assert "municipal-cut-mcd-histograms" in SUITES["municipal"]
 
 
 def test_prepare_workflow_builds_absolute_paths(tmp_path: Path) -> None:

@@ -150,7 +150,7 @@ Available suites:
 - `standard`: vote comparison, compliant municipal analysis, district-rank
   municipal plots, cut edges, Polsby-Popper, CVAP, and responsiveness.
 - `municipal`: derived municipal histograms, distributions, tradeoff,
-  outside-population marginals, and public-plan comparison.
+  multi-ensemble marginal plots, and public-plan comparison.
 - `external`: inspect and summarize the optional outside ensemble.
 - `full`: `standard`, then `municipal`, then the zoomed responsiveness figure.
 
@@ -219,10 +219,10 @@ scoring.
 
 ## Comparing arbitrary municipal trace collections
 
-`municipal-tradeoff-weights`, `municipal-tradeoff-weights-external`, and
-`municipal-outside-population-marginals` can compare any number of
-`atlas-posthoc` municipal trace outputs. In the TOML file, use a label-to-path
-table:
+`municipal-tradeoff-weights`, `municipal-tradeoff-weights-external`,
+`municipal-outside-population-marginals`, and `municipal-cut-mcd-histograms`
+can compare any number of `atlas-posthoc` municipal trace outputs. In the TOML
+file, use a label-to-path table:
 
 ```toml
 [inputs.municipal_trace_collections]
@@ -240,10 +240,11 @@ atlas-posthoc-plus run municipal-tradeoff-weights -- \
   --trace-collection "Higher MCD penalty=atlas-posthoc/mcd20/diagnostics/municipal_split_traces.json"
 ```
 
-For the outside-population marginal view, use:
+For the requested marginal views, use:
 
 ```bash
 atlas-posthoc-plus run municipal-outside-population-marginals
+atlas-posthoc-plus run municipal-cut-mcd-histograms
 ```
 
 The older `inputs.traces_json_mcd20`, `inputs.traces_json_mcd5`, and
@@ -274,6 +275,7 @@ after `--`.
 | `municipal-distributions` | `workflows.municipal.distributions` | Chain-wise municipal distributions |
 | `municipal-tradeoff` | `workflows.municipal.tradeoff` | Cut/ousted-population tradeoff |
 | `municipal-outside-population-marginals` | `workflows.municipal.outside_population_marginals` | Multi-ensemble ousted-population marginals |
+| `municipal-cut-mcd-histograms` | `workflows.municipal.cut_mcd_histograms` | Multi-ensemble cut-MCD histograms |
 | `municipal-tradeoff-public` | `workflows.municipal.tradeoff_public` | Public-plan tradeoff |
 | `municipal-tradeoff-weights` | `workflows.municipal.tradeoff_weights` | Multi-collection municipal tradeoff |
 
