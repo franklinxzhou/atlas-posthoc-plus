@@ -28,10 +28,13 @@ src/
         │   └── vote_comparison_adjusted.py
         ├── municipal/
         │   ├── compliant_histograms.py
+        │   ├── cut_mcd_histograms.py
         │   ├── district_rank.py
         │   ├── district_rank_compliant.py
         │   ├── distributions.py
         │   ├── histograms.py
+        │   ├── marginal_helpers.py
+        │   ├── outside_population_marginals.py
         │   ├── tradeoff.py
         │   ├── tradeoff_public.py
         │   ├── tradeoff_weights.py
@@ -39,6 +42,7 @@ src/
         ├── compactness/
         │   ├── cut_edges.py
         │   ├── official_polsby.py
+        │   ├── polsby_histogram.py
         │   └── polsby_trace.py
         ├── demographics/
         │   └── ranked_vote_cvap.py
@@ -261,8 +265,10 @@ after `--`.
 | Workflow | Packaged module | Result |
 |---|---|---|
 | `build-crosswalk` | `workflows.setup.crosswalk` | Block-to-precinct crosswalk |
+| `vote-comparison` | `workflows.standard.vote_comparison` | Ordered vote-share comparison |
 | `vote-comparison-adjusted` | `workflows.standard.vote_comparison_adjusted` | Ordered vote-share comparison |
 | `municipal-histograms-compliant` | `workflows.municipal.compliant_histograms` | Compliant traces and reference histograms |
+| `district-rank-municipal` | `workflows.municipal.district_rank` | Municipal burden by ranked district |
 | `district-rank-municipal-compliant` | `workflows.municipal.district_rank_compliant` | Municipal burden by ranked district |
 | `cut-edges-compliant` | `workflows.compactness.cut_edges` | Cut-edge distribution |
 | `official-polsby` | `workflows.compactness.official_polsby` | Official-plan compactness CSVs |
@@ -278,9 +284,9 @@ after `--`.
 | `municipal-cut-mcd-histograms` | `workflows.municipal.cut_mcd_histograms` | Multi-ensemble cut-MCD histograms |
 | `municipal-tradeoff-public` | `workflows.municipal.tradeoff_public` | Public-plan tradeoff |
 | `municipal-tradeoff-weights` | `workflows.municipal.tradeoff_weights` | Multi-collection municipal tradeoff |
-
-The registry also retains the unadjusted vote comparison and optional
-external-ensemble workflows.
+| `municipal-tradeoff-weights-external` | `workflows.municipal.tradeoff_weights_external` | Multi-collection tradeoff with an external ensemble |
+| `inspect-external-ensemble` | `workflows.external.inspect_ensemble` | External-ensemble input inspection |
+| `summarize-external-ensemble` | `workflows.external.summarize_ensemble` | External-ensemble municipal summaries |
 
 ## Development checks
 
