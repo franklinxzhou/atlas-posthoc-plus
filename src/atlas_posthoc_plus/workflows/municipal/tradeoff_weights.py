@@ -10,6 +10,7 @@ atlas-posthoc-plus run municipal-tradeoff-weights \
 from __future__ import annotations
 
 import argparse
+import colorsys
 import json
 import re
 from dataclasses import dataclass
@@ -136,7 +137,153 @@ COLLECTION_STYLE_CYCLE = [
         "s": 34,
         "alpha": 0.32,
     },
+    {
+        "marker": "v",
+        "color": "#e377c2",
+        "facecolors": "none",
+        "edgecolors": "#e377c2",
+        "linewidths": 1.0,
+        "s": 34,
+        "alpha": 0.34,
+    },
+    {
+        "marker": "<",
+        "color": "#17becf",
+        "facecolors": "none",
+        "edgecolors": "#17becf",
+        "linewidths": 1.0,
+        "s": 34,
+        "alpha": 0.34,
+    },
+    {
+        "marker": ">",
+        "color": "#bcbd22",
+        "facecolors": "none",
+        "edgecolors": "#bcbd22",
+        "linewidths": 1.0,
+        "s": 34,
+        "alpha": 0.34,
+    },
+    {
+        "marker": "h",
+        "color": "#393b79",
+        "facecolors": "none",
+        "edgecolors": "#393b79",
+        "linewidths": 1.0,
+        "s": 34,
+        "alpha": 0.34,
+    },
+    {
+        "marker": "*",
+        "color": "#637939",
+        "facecolors": "#637939",
+        "edgecolors": "#637939",
+        "linewidths": 0.65,
+        "s": 44,
+        "alpha": 0.32,
+    },
+    {
+        "marker": "X",
+        "color": "#8c6d31",
+        "facecolors": "#8c6d31",
+        "edgecolors": "#8c6d31",
+        "linewidths": 0.65,
+        "s": 34,
+        "alpha": 0.32,
+    },
+    {
+        "marker": "o",
+        "color": "#843c39",
+        "facecolors": "none",
+        "edgecolors": "#843c39",
+        "linewidths": 1.0,
+        "s": 34,
+        "alpha": 0.34,
+    },
+    {
+        "marker": "^",
+        "color": "#7b4173",
+        "facecolors": "none",
+        "edgecolors": "#7b4173",
+        "linewidths": 1.0,
+        "s": 34,
+        "alpha": 0.34,
+    },
+    {
+        "marker": "s",
+        "color": "#3182bd",
+        "facecolors": "none",
+        "edgecolors": "#3182bd",
+        "linewidths": 1.0,
+        "s": 34,
+        "alpha": 0.34,
+    },
+    {
+        "marker": "D",
+        "color": "#e6550d",
+        "facecolors": "none",
+        "edgecolors": "#e6550d",
+        "linewidths": 1.0,
+        "s": 34,
+        "alpha": 0.34,
+    },
+    {
+        "marker": "P",
+        "color": "#31a354",
+        "facecolors": "#31a354",
+        "edgecolors": "#31a354",
+        "linewidths": 0.65,
+        "s": 34,
+        "alpha": 0.32,
+    },
+    {
+        "marker": "v",
+        "color": "#756bb1",
+        "facecolors": "none",
+        "edgecolors": "#756bb1",
+        "linewidths": 1.0,
+        "s": 34,
+        "alpha": 0.34,
+    },
+    {
+        "marker": "<",
+        "color": "#1b9e77",
+        "facecolors": "none",
+        "edgecolors": "#1b9e77",
+        "linewidths": 1.0,
+        "s": 34,
+        "alpha": 0.34,
+    },
+    {
+        "marker": ">",
+        "color": "#e7298a",
+        "facecolors": "none",
+        "edgecolors": "#e7298a",
+        "linewidths": 1.0,
+        "s": 34,
+        "alpha": 0.34,
+    },
 ]
+
+
+def _generated_collection_color(style_index: int) -> str:
+    hue = (0.11 + style_index * 0.618033988749895) % 1.0
+    red, green, blue = colorsys.hsv_to_rgb(hue, 0.68, 0.78)
+    return "#{:02x}{:02x}{:02x}".format(
+        round(red * 255),
+        round(green * 255),
+        round(blue * 255),
+    )
+
+
+def _collection_style_with_color(style: dict[str, Any], color: str) -> dict[str, Any]:
+    out = dict(style)
+    out["color"] = color
+    out["edgecolors"] = color
+    if out.get("facecolors") != "none":
+        out["facecolors"] = color
+    return out
+
 
 OFFICIAL_STYLES = {
     "Enacted ('25)": {
@@ -393,8 +540,14 @@ def trace_collections_from_args(args: argparse.Namespace) -> list[TraceCollectio
 def collection_style(collection: str, *, style_index: int, label: str) -> dict[str, Any]:
     if collection in WEIGHT_STYLES:
         style = dict(WEIGHT_STYLES[collection])
+    elif 0 <= style_index < len(COLLECTION_STYLE_CYCLE):
+        style = dict(COLLECTION_STYLE_CYCLE[style_index])
     else:
-        style = dict(COLLECTION_STYLE_CYCLE[style_index % len(COLLECTION_STYLE_CYCLE)])
+        base_style = COLLECTION_STYLE_CYCLE[style_index % len(COLLECTION_STYLE_CYCLE)]
+        style = _collection_style_with_color(
+            base_style,
+            _generated_collection_color(style_index),
+        )
     style["label"] = label
     return style
 

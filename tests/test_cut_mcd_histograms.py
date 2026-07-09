@@ -63,6 +63,32 @@ def test_cut_histogram_bins_are_centered_on_integer_counts(tmp_path: Path) -> No
     assert np.allclose(np.diff(bins), 1.0)
 
 
+def test_cut_histogram_series_assigns_unique_colors_to_many_collections(
+    tmp_path: Path,
+) -> None:
+    trace_collection = []
+    for idx in range(24):
+        traces = _trace_file(
+            tmp_path / f"collection_{idx}.json",
+            cuts=[idx + 1, idx + 2],
+            shares=[0.01 + idx * 0.001, 0.011 + idx * 0.001],
+        )
+        trace_collection.append(f"Collection {idx}={traces}")
+
+    args = Namespace(
+        trace_collection=trace_collection,
+        traces_json_mcd20="",
+        traces_json_mcd5="",
+        traces_json_mcd1="",
+    )
+    traces = load_all_traces(args)
+    series = build_collection_series(traces)
+    colors = [item.color for item in series]
+
+    assert len(colors) == len(trace_collection)
+    assert len(set(colors)) == len(colors)
+
+
 def test_cut_histogram_plotter_writes_png(tmp_path: Path) -> None:
     traces = _load_two_collections(tmp_path)
     refs = {
