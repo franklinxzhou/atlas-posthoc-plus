@@ -49,6 +49,11 @@ import numpy as np
 import pandas as pd
 
 from atlas_posthoc_plus.io.atlas_records import iter_map_records
+from atlas_posthoc_plus.io.chain_sweep import (
+    cached_assignment_series,
+    cached_compliance,
+    configured_sweep,
+)
 from atlas_posthoc_plus.io.graph import read_graph_frame
 
 
@@ -346,6 +351,10 @@ def atlasio_districting_to_series(
     node_id_col: str = "id",
     node_lookup: tuple[dict[str, int], tuple[int, ...]] | None = None,
 ) -> pd.Series:
+    cached = cached_assignment_series(districting, node_id_col=node_id_col)
+    if cached is not None:
+        return cached.sort_index()
+
     if node_lookup is None:
         node_key_to_id, node_ids = build_node_key_lookup(
             graph_nodes,
@@ -495,6 +504,10 @@ def county_compliance_summary_for_assignment(
     county_col: str,
     max_districts_per_county: int,
 ) -> dict[str, Any]:
+    cached = cached_compliance(assignment)
+    if cached is not None:
+        return cached
+
     """
     Same county-compliance rule used in
     plot_oh_compliant_ensemble_vs_plans_adjusted.py.
@@ -627,7 +640,8 @@ def build_ensemble_matrices(
         double_cross_counts: list[int] = []
         worst_splits: list[int] = []
 
-        print(f"Reading chain: {chain_file}")
+        action = "Analyzing shared assignments" if configured_sweep() else "Reading chain"
+        print(f"{action}: {chain_file}")
 
         for record_index, record in enumerate(iter_atlasio_map_records(chain_file)):
             if max_maps_per_chain is not None and maps_seen >= max_maps_per_chain:

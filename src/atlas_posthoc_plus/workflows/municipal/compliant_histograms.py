@@ -49,8 +49,13 @@ from atlas_posthoc.observables.municipal_splits import (
     MunicipalSplitTrace,
     compute_municipal_split_statistics_for_assignment,
 )
-from atlas_posthoc.io.atlas_reader import iter_atlas_records
 from atlas_posthoc.io.graph_reader import read_graph_json
+from atlas_posthoc_plus.io.atlas_records import iter_map_records
+from atlas_posthoc_plus.io.chain_sweep import (
+    cached_assignment_series,
+    cached_compliance,
+    configured_sweep,
+)
 
 
 # =============================================================================
@@ -235,13 +240,8 @@ def maybe_json_loads(x: Any) -> Any:
 
 def iter_atlasio_districtings(chain_path: Path):
     """Yield raw districting payloads through the atlas-posthoc reader."""
-    for record in iter_atlas_records(chain_path, skip_bad_lines=True):
-        districting = (
-            record.raw_assignment
-            if record.raw_assignment is not None
-            else record.assignment
-        )
-        yield record.line_number, districting
+    for record in iter_map_records(chain_path, skip_bad_json=True):
+        yield record.get("line_number", 0), record["districting"]
 
 
 def _node_attributes(record: Any) -> dict[str, Any]:
@@ -319,7 +319,7 @@ def atlasio_districting_to_assignment(
     *,
     node_id_col: str,
     name_col: str,
-) -> dict[str, int]:
+) -> Any:
     """
     Convert an AtlasIO districting payload to:
         {graph_node_id: district}
@@ -328,6 +328,13 @@ def atlasio_districting_to_assignment(
         [{'["PRECINCT_NAME"]': 15}, ...]
     and raw dict districtings.
     """
+    cached = cached_assignment_series(districting, node_id_col=node_id_col)
+    if cached is not None:
+        compliance = cached.attrs.copy()
+        cached.index = cached.index.map(str)
+        cached.attrs.update(compliance)
+        return cached
+
     name_to_id = {
         normalize_atlas_key(node[name_col]): str(node[node_id_col])
         for node in graph_nodes
@@ -407,6 +414,10 @@ def county_compliance_summary_for_assignment(
     county_col: str,
     max_districts_per_county: int,
 ) -> dict[str, Any]:
+    cached = cached_compliance(assignment)
+    if cached is not None:
+        return cached
+
     county_to_districts: dict[str, set[int]] = defaultdict(set)
 
     assigned_nodes = 0
@@ -496,7 +507,8 @@ def build_compliant_municipal_split_traces(
     municipality_cols_tuple = tuple(municipality_cols)
 
     for chain_id, chain_path in zip(chain_ids, chains):
-        print(f"\nSweeping chain {chain_id}: {chain_path}")
+        action = "Analyzing shared assignments" if configured_sweep() else "Sweeping chain"
+        print(f"\n{action} {chain_id}: {chain_path}")
 
         proposals: list[int] = []
         n_cut: list[float] = []

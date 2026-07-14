@@ -23,7 +23,8 @@ import pandas as pd
 
 from atlas_posthoc.io.graph_reader import read_graph_json
 
-from atlas_posthoc_plus.io import atlas_compat as Atlas
+from atlas_posthoc_plus.io.atlas_records import iter_map_records
+from atlas_posthoc_plus.io.chain_sweep import cached_assignment_series, cached_compliance
 
 # atlas-posthoc
 from atlas_posthoc.plotting.marginals import plot_vote_share_boxplots
@@ -313,6 +314,10 @@ def county_compliance_summary_for_map(
     county_col: str,
     max_districts_per_county: int,
 ) -> dict[str, Any]:
+    cached = cached_compliance(districting)
+    if cached is not None:
+        return cached
+
     county_to_districts: dict[str, set[Any]] = defaultdict(set)
 
     assigned_nodes = 0
@@ -353,8 +358,15 @@ def ordered_vote_vector_for_atlas_map(
     dem_by_dist: dict[Any, float] = defaultdict(float)
     rep_by_dist: dict[Any, float] = defaultdict(float)
 
+    cached = cached_assignment_series(districting)
+    cached_districts = cached.to_dict() if cached is not None else None
+
     for name, attrs in nodes_by_name.items():
-        dist = get_district_for_node(districting, name)
+        dist = (
+            cached_districts.get(int(attrs["id"]))
+            if cached_districts is not None
+            else get_district_for_node(districting, name)
+        )
         if dist is None:
             continue
 
@@ -397,7 +409,6 @@ def build_compliant_vote_runs(
         if not chain_path.exists():
             raise FileNotFoundError(chain_path)
 
-        atlas = Atlas.openAtlas(str(chain_path))
         print(f"\nSweeping chain {chain_id}: {chain_path}")
 
         map_seen = 0
@@ -410,67 +421,49 @@ def build_compliant_vote_runs(
         worst_splits: list[int] = []
         vote_vectors: list[np.ndarray] = []
 
-        try:
-            while True:
-                try:
-                    current_map = Atlas.nextMap(atlas)
-                except json.JSONDecodeError as e:
-                    bad_json_lines += 1
-                    print(
-                        f"  WARNING: AtlasIO hit bad JSON in {chain_id}; "
-                        f"stopping this chain after {map_seen} successfully read maps. "
-                        f"Error: {e}"
-                    )
-                    break
+        for current_map in iter_map_records(chain_path):
+            map_seen += 1
 
-                if current_map is None:
-                    break
+            if thin_step > 1 and ((map_seen - 1) % thin_step != 0):
+                continue
 
-                map_seen += 1
+            map_used_after_thin += 1
 
-                if thin_step > 1 and ((map_seen - 1) % thin_step != 0):
-                    continue
+            if (
+                max_maps_per_chain is not None
+                and map_used_after_thin > max_maps_per_chain
+            ):
+                break
 
-                map_used_after_thin += 1
+            districting = current_map["districting"]
 
-                if (
-                    max_maps_per_chain is not None
-                    and map_used_after_thin > max_maps_per_chain
-                ):
-                    break
+            comp = county_compliance_summary_for_map(
+                districting,
+                nodes_by_name,
+                county_col=county_col,
+                max_districts_per_county=max_districts_per_county,
+            )
 
-                districting = current_map.districting
+            double_cross_counts.append(comp["double_cross_count"])
+            worst_splits.append(comp["worst_split"])
 
-                comp = county_compliance_summary_for_map(
-                    districting,
-                    nodes_by_name,
-                    county_col=county_col,
-                    max_districts_per_county=max_districts_per_county,
-                )
+            if not comp["compliant"]:
+                continue
 
-                double_cross_counts.append(comp["double_cross_count"])
-                worst_splits.append(comp["worst_split"])
+            vec = ordered_vote_vector_for_atlas_map(
+                districting,
+                nodes_by_name,
+                dem_col=dem_col,
+                rep_col=rep_col,
+                n_districts=n_districts,
+            )
 
-                if not comp["compliant"]:
-                    continue
+            if vec is None:
+                invalid_vote_vectors += 1
+                continue
 
-                vec = ordered_vote_vector_for_atlas_map(
-                    districting,
-                    nodes_by_name,
-                    dem_col=dem_col,
-                    rep_col=rep_col,
-                    n_districts=n_districts,
-                )
-
-                if vec is None:
-                    invalid_vote_vectors += 1
-                    continue
-
-                vote_vectors.append(vec)
-                compliant_maps += 1
-
-        finally:
-            Atlas.closeAtlas(atlas)
+            vote_vectors.append(vec)
+            compliant_maps += 1
 
         arr = np.vstack(vote_vectors) if vote_vectors else np.empty((0, n_districts))
         compliant_runs[chain_id] = arr

@@ -49,8 +49,11 @@ from matplotlib.ticker import PercentFormatter
 import numpy as np
 import pandas as pd
 
-from atlas_posthoc.pipeline.chain_observables import build_multi_chain_observables
+import atlas_posthoc.pipeline.chain_observables as chain_observables
+from atlas_posthoc.observables.compactness import extract_ordered_compactness_from_record
 from atlas_posthoc.observables.polsby_popper import make_polsby_popper_traces
+from atlas_posthoc_plus.io.atlas_records import iter_records
+from atlas_posthoc_plus.io.chain_sweep import configured_sweep, iter_sweep_records
 
 
 PLAN_STYLES = {
@@ -60,6 +63,40 @@ PLAN_STYLES = {
 }
 
 CHAIN_COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"]
+
+
+def load_sweep_compactness_runs(
+    chain_files: list[str | Path],
+    chain_ids: list[str],
+    *,
+    n_districts: int,
+    thin_step: int,
+    max_maps_per_chain: int | None,
+) -> dict[str, np.ndarray]:
+    runs: dict[str, np.ndarray] = {}
+    for chain_file, chain_id in zip(chain_files, chain_ids):
+        rows: list[np.ndarray] = []
+        for index, record in enumerate(iter_sweep_records(chain_file)):
+            if index % thin_step != 0:
+                continue
+            if max_maps_per_chain is not None and len(rows) >= max_maps_per_chain:
+                break
+            result = extract_ordered_compactness_from_record(
+                record,
+                n_districts=n_districts,
+                sort="ascending",
+                allow_missing_scores=False,
+            )
+            rows.append(
+                np.asarray(
+                    [np.nan if value is None else value for value in result.ordered_scores],
+                    dtype=float,
+                )
+            )
+        if not rows:
+            raise RuntimeError(f"no compactness records found for {chain_id}")
+        runs[chain_id] = np.vstack(rows)
+    return runs
 
 
 def get_trace_values(trace: Any, metric: str) -> np.ndarray:
@@ -341,33 +378,44 @@ def main() -> None:
     print("Ohio congressional Polsby-Popper trace from official reference CSV")
     print("=" * 80)
 
-    print("\n[1/3] Parsing AtlasIO chains with atlas-posthoc...")
-    obs = build_multi_chain_observables(
-        [Path(p) for p in args.chain_files],
-        args.graph_json,
-        chain_ids=args.chain_ids,
-        key_cols=[args.atlas_key_col],
-        dem_col=args.dem_col,
-        rep_col=args.rep_col,
-        n_districts=args.n_districts,
-        output_frequency=args.output_frequency,
-        thin_step=args.thin_step,
-        require_compactness=True,
-    )
+    if configured_sweep() is not None:
+        print("\n[1/3] Loading compactness from the shared one-pass sweep...")
+        compactness_runs = load_sweep_compactness_runs(
+            args.chain_files,
+            args.chain_ids,
+            n_districts=args.n_districts,
+            thin_step=args.thin_step,
+            max_maps_per_chain=args.max_maps_per_chain,
+        )
+    else:
+        print("\n[1/3] Parsing AtlasIO chains with atlas-posthoc...")
+        chain_observables.iter_atlas_records = iter_records
+        obs = chain_observables.build_multi_chain_observables(
+            [Path(p) for p in args.chain_files],
+            args.graph_json,
+            chain_ids=args.chain_ids,
+            key_cols=[args.atlas_key_col],
+            dem_col=args.dem_col,
+            rep_col=args.rep_col,
+            n_districts=args.n_districts,
+            output_frequency=args.output_frequency,
+            thin_step=args.thin_step,
+            require_compactness=True,
+        )
+        compactness_runs = obs.compactness_runs
+        if args.max_maps_per_chain is not None:
+            for chain_id in list(compactness_runs):
+                compactness_runs[chain_id] = compactness_runs[chain_id][
+                    : args.max_maps_per_chain
+                ]
 
-    if args.max_maps_per_chain is not None:
-        for chain_id in list(obs.vote_runs.keys()):
-            obs.vote_runs[chain_id] = obs.vote_runs[chain_id][: args.max_maps_per_chain]
-        for chain_id in list(obs.compactness_runs.keys()):
-            obs.compactness_runs[chain_id] = obs.compactness_runs[chain_id][: args.max_maps_per_chain]
-
-    for chain_id, arr in obs.compactness_runs.items():
+    for chain_id, arr in compactness_runs.items():
         print(
             f"  {chain_id}: compactness matrix {arr.shape}, "
             f"raw score range=({np.nanmin(arr):.3f}, {np.nanmax(arr):.3f})"
         )
 
-    traces_n_maps = [arr.shape[0] for arr in obs.compactness_runs.values()]
+    traces_n_maps = [arr.shape[0] for arr in compactness_runs.values()]
     if args.total_proposals is not None and traces_n_maps:
         unique_n_maps = sorted(set(traces_n_maps))
         print(f"  saved maps per chain: {unique_n_maps}")
@@ -389,7 +437,7 @@ def main() -> None:
 
     print("\n[2/3] Converting chain isoperimetric scores to Polsby-Popper...")
     traces = make_polsby_popper_traces(
-        obs.compactness_runs,
+        compactness_runs,
         output_frequency=args.output_frequency * args.thin_step,
         convention=args.compactness_convention,
         input_is_polsby_popper=False,

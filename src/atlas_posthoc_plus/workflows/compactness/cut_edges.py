@@ -55,6 +55,11 @@ import pandas as pd
 from atlas_posthoc.io.graph_reader import adjacency_edges, read_graph_json
 
 from atlas_posthoc_plus.io.atlas_records import iter_map_records
+from atlas_posthoc_plus.io.chain_sweep import (
+    cached_assignment_series,
+    cached_compliance,
+    configured_sweep,
+)
 
 
 PLAN_STYLES = {
@@ -245,6 +250,10 @@ def atlasio_districting_to_series(
     key_col: str = "NAME",
     node_id_col: str = "id",
 ) -> pd.Series:
+    cached = cached_assignment_series(districting, node_id_col=node_id_col)
+    if cached is not None:
+        return cached.sort_index()
+
     if key_col not in graph_nodes.columns:
         raise ValueError(f"key_col={key_col!r} is not in graph nodes.")
 
@@ -313,6 +322,10 @@ def county_compliance_summary(
     county_col: str = "COUNTY",
     max_districts_per_county: int = 2,
 ) -> dict[str, Any]:
+    cached = cached_compliance(assignment)
+    if cached is not None:
+        return cached
+
     assign_df = assignment.rename("DISTRICT").rename_axis(node_id_col).reset_index()
     assign_df[node_id_col] = pd.to_numeric(assign_df[node_id_col], errors="coerce")
 
@@ -376,7 +389,8 @@ def build_compliant_cut_edge_values(
     for chain_file in chain_files:
         chain_file = Path(chain_file)
         chain_id = chain_id_from_path(chain_file)
-        print(f"\nSweeping chain {chain_id}: {chain_file}")
+        action = "Analyzing shared assignments" if configured_sweep() else "Sweeping chain"
+        print(f"\n{action} {chain_id}: {chain_file}")
 
         maps_seen = 0
         maps_used_after_thin = 0

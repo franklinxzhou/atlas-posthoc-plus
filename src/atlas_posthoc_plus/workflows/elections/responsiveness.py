@@ -38,6 +38,13 @@ from matplotlib.ticker import PercentFormatter
 import numpy as np
 import pandas as pd
 
+from atlas_posthoc_plus.io.atlas_records import iter_map_records
+from atlas_posthoc_plus.io.chain_sweep import (
+    cached_assignment_series,
+    cached_compliance,
+    configured_sweep,
+)
+
 PLAN_STYLES = {
     "Enacted ('25)": {"color": "#9467bd", "marker": "o"},
     "Overturned ('21)": {"color": "#2ca02c", "marker": "o"},
@@ -267,22 +274,17 @@ def iter_json_values(line):
         idx = end
 
 def iter_atlasio_records(path):
-    with open_maybe_gzip(path) as f:
-        for line_no, line in enumerate(f, 1):
-            line = line.strip()
-            if not line: continue
-            try:
-                for obj in iter_json_values(line):
-                    obj = maybe_json_loads(obj)
-                    if isinstance(obj, dict) and "districting" in obj: yield obj
-            except json.JSONDecodeError as exc:
-                print(f"WARNING: skipping bad JSON in {path} line {line_no}: {exc}")
+    yield from iter_map_records(path)
 
 def chain_id_from_path(path):
     m = re.search(r"(run\d+)", Path(path).name)
     return m.group(1) if m else Path(path).stem
 
 def atlasio_assignment(districting, graph_nodes, key_col, node_id_col):
+    cached = cached_assignment_series(districting, node_id_col=node_id_col)
+    if cached is not None:
+        return cached.sort_index()
+
     node_ids = graph_nodes[node_id_col].astype(int).tolist()
     name_to_id = {norm_atlas_key(row[key_col]): int(row[node_id_col]) for _, row in graph_nodes.iterrows()}
     districting = maybe_json_loads(districting)
@@ -312,6 +314,10 @@ def atlasio_assignment(districting, graph_nodes, key_col, node_id_col):
     raise ValueError(f"unsupported districting type {type(districting)}")
 
 def compliance(assignment, graph_nodes, node_id_col, county_col, max_per_county):
+    cached = cached_compliance(assignment)
+    if cached is not None:
+        return cached
+
     a = assignment.rename("DISTRICT").rename_axis(node_id_col).reset_index()
     a[node_id_col] = pd.to_numeric(a[node_id_col], errors="coerce")
     nodes = graph_nodes[[node_id_col, county_col]].copy()
@@ -326,7 +332,8 @@ def load_assignments(chain_files, graph_nodes, atlas_key_col, node_id_col, count
     assignments, rows = [], []
     for chain in chain_files:
         chain_id = chain_id_from_path(chain)
-        print(f"\nSweeping chain {chain_id}: {chain}")
+        action = "Analyzing shared assignments" if configured_sweep() else "Sweeping chain"
+        print(f"\n{action} {chain_id}: {chain}")
         seen = kept = invalid = 0
         dcs, worsts = [], []
         for rec in iter_atlasio_records(chain):

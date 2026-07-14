@@ -37,6 +37,11 @@ import numpy as np
 import pandas as pd
 
 from atlas_posthoc_plus.io.atlas_records import iter_map_records
+from atlas_posthoc_plus.io.chain_sweep import (
+    cached_assignment_series,
+    cached_compliance,
+    configured_sweep,
+)
 from atlas_posthoc_plus.io.graph import read_graph_frame
 
 
@@ -217,6 +222,10 @@ def atlasio_districting_to_series(
     key_col: str = "NAME",
     node_id_col: str = "id",
 ) -> pd.Series:
+    cached = cached_assignment_series(districting, node_id_col=node_id_col)
+    if cached is not None:
+        return cached.sort_index()
+
     if key_col not in graph_nodes.columns:
         raise ValueError(
             f"key_col={key_col!r} is not in graph nodes. "
@@ -325,6 +334,10 @@ def county_compliance_summary(
     county_col: str = "COUNTY",
     max_districts_per_county: int = 2,
 ) -> dict[str, Any]:
+    cached = cached_compliance(assignment)
+    if cached is not None:
+        return cached
+
     """
     Standardized county-compliance filter.
 
@@ -521,7 +534,8 @@ def build_compliant_ensemble_rank_matrices(
         if m:
             chain_id = m.group(1)
 
-        print(f"\nReading chain: {chain_file}")
+        action = "Analyzing shared assignments" if configured_sweep() else "Reading chain"
+        print(f"\n{action}: {chain_file}")
 
         used = 0
         seen = 0
