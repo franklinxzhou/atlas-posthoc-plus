@@ -65,6 +65,11 @@ import pandas as pd
 from atlas_posthoc.observables.municipal_splits import (
     compute_municipal_split_statistics_for_assignment,
 )
+from atlas_posthoc_plus.workflows.municipal.geography import (
+    MunicipalGeography,
+    add_municipality_arguments,
+    geography_from_args,
+)
 
 
 DEFAULT_CHAIN_COLORS = [
@@ -607,6 +612,7 @@ def process_public_plans(
     min_assigned_pop_share: float,
     public_block_col: str | None = None,
     public_district_col: str | None = None,
+    geography: MunicipalGeography | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     public_plan_dir = Path(public_plan_dir)
 
@@ -669,14 +675,18 @@ def process_public_plans(
                 manifest_rows.append(base_row)
                 continue
 
-            summary_obj = compute_municipal_split_statistics_for_assignment(
-                assignment,
-                block_nodes,
-                municipality_cols=("COUNTY", "MCD"),
-                node_id_col="id",
-                pop_col="POP20",
-                skip_missing_municipality=True,
-                require_complete_assignment=False,
+            summary_obj = (
+                geography.summarize_assignment(assignment, block_nodes)
+                if geography is not None
+                else compute_municipal_split_statistics_for_assignment(
+                    assignment,
+                    block_nodes,
+                    municipality_cols=("COUNTY", "MCD"),
+                    node_id_col="id",
+                    pop_col="POP20",
+                    skip_missing_municipality=True,
+                    require_complete_assignment=False,
+                )
             )
 
             summary = municipal_summary_to_dict(summary_obj)
@@ -1071,14 +1081,20 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--mcd-shapefile", default=None)
     p.add_argument("--mcd-shape-county-col", default=None)
     p.add_argument("--mcd-shape-mcd-col", default=None)
+    add_municipality_arguments(p)
 
     return p.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    geography = geography_from_args(args)
 
     traces = load_json(args.traces_json)
+    geography.validate_trace_metadata(traces)
+    geography.assert_compatible_metadata(
+        load_json(Path(args.reference_json).with_suffix(".municipality.json"))
+    )
     refs = normalize_reference_summaries(load_json(args.reference_json))
 
     public_summaries: list[dict[str, Any]] = []
@@ -1086,6 +1102,10 @@ def main() -> None:
     if args.reuse_public_summary:
         if args.public_summary_json is None:
             raise ValueError("--reuse-public-summary requires --public-summary-json")
+        metadata_path = Path(args.public_summary_json).with_suffix(".municipality.json")
+        if not metadata_path.exists():
+            raise ValueError("Public summary cache has no municipality metadata")
+        geography.assert_compatible_metadata(load_json(metadata_path))
         public_summaries = load_json(args.public_summary_json)
         if not isinstance(public_summaries, list):
             raise ValueError("--public-summary-json must contain a list of public-plan summaries.")
@@ -1094,8 +1114,8 @@ def main() -> None:
     elif args.public_plan_dir is not None:
         if args.block_metadata is None:
             raise ValueError("--public-plan-dir requires --block-metadata")
-        block_nodes = read_block_metadata(
-            block_metadata=args.block_metadata,
+        block_nodes = geography.read_block_nodes(
+            args.block_metadata,
             block_col=args.block_col,
             county_col=args.county_col_block,
             pop_col=args.pop_col_block,
@@ -1112,6 +1132,7 @@ def main() -> None:
             min_assigned_pop_share=args.min_assigned_pop_share,
             public_block_col=args.public_block_col,
             public_district_col=args.public_district_col,
+            geography=geography,
         )
 
         if args.public_manifest_out is not None:
@@ -1122,6 +1143,9 @@ def main() -> None:
 
         if args.public_summary_json is not None:
             write_json(args.public_summary_json, public_summaries)
+            geography.write_metadata(
+                Path(args.public_summary_json).with_suffix(".municipality.json")
+            )
             print(f"Wrote public summaries: {args.public_summary_json}")
 
     if args.y_metric == "share":

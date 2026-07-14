@@ -32,6 +32,11 @@ import pandas as pd
 from atlas_posthoc.observables.municipal_splits import (
     compute_municipal_split_statistics_for_assignment,
 )
+from atlas_posthoc_plus.workflows.municipal.geography import (
+    MunicipalGeography,
+    add_municipality_arguments,
+    geography_from_args,
+)
 
 
 # =============================================================================
@@ -789,6 +794,8 @@ def summarize_assignment(
     total_pop: float,
     expected_districts: int,
     min_assigned_pop_share: float,
+    geography: MunicipalGeography | None = None,
+    require_complete_assignment: bool = False,
 ) -> dict[str, Any]:
     assigned_pop = sum(block_pop.get(block_id, 0.0) for block_id in assignment)
     assigned_pop_share = assigned_pop / total_pop if total_pop > 0 else np.nan
@@ -802,14 +809,22 @@ def summarize_assignment(
             f"{min_assigned_pop_share:.3%}"
         )
 
-    summary_obj = compute_municipal_split_statistics_for_assignment(
-        assignment,
-        block_nodes,
-        municipality_cols=("COUNTY", "MCD"),
-        node_id_col="id",
-        pop_col="POP20",
-        skip_missing_municipality=True,
-        require_complete_assignment=False,
+    summary_obj = (
+        geography.summarize_assignment(
+            assignment,
+            block_nodes,
+            require_complete_assignment=require_complete_assignment,
+        )
+        if geography is not None
+        else compute_municipal_split_statistics_for_assignment(
+            assignment,
+            block_nodes,
+            municipality_cols=("COUNTY", "MCD"),
+            node_id_col="id",
+            pop_col="POP20",
+            skip_missing_municipality=True,
+            require_complete_assignment=False,
+        )
     )
     summary = municipal_summary_to_dict(summary_obj)
     summary.update(
@@ -832,6 +847,7 @@ def summarize_official_plans(
     min_assigned_pop_share: float,
     official_block_col: str | None = None,
     official_district_col: str | None = None,
+    geography: MunicipalGeography | None = None,
 ) -> dict[str, dict[str, Any]]:
     block_pop = {str(row["id"]): float(row["POP20"]) for row in block_nodes}
     total_pop = sum(block_pop.values())
@@ -854,6 +870,8 @@ def summarize_official_plans(
             total_pop=total_pop,
             expected_districts=expected_districts,
             min_assigned_pop_share=min_assigned_pop_share,
+            geography=geography,
+            require_complete_assignment=True,
         )
         summary.update(meta)
         summaries[label] = summary
@@ -893,6 +911,7 @@ def process_public_plans(
     min_assigned_pop_share: float,
     public_block_col: str | None = None,
     public_district_col: str | None = None,
+    geography: MunicipalGeography | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     block_pop = {str(row["id"]): float(row["POP20"]) for row in block_nodes}
     total_pop = sum(block_pop.values())
@@ -937,6 +956,7 @@ def process_public_plans(
                 total_pop=total_pop,
                 expected_districts=expected_districts,
                 min_assigned_pop_share=min_assigned_pop_share,
+                geography=geography,
             )
             summary.update(meta)
 
@@ -1042,6 +1062,7 @@ def plot_tradeoff(
     title: str,
     y_key: str,
     y_label: str,
+    x_label: str = "Number of cut MCDs",
     use_percent_axis: bool,
     label_references: bool,
     label_public: bool,
@@ -1194,7 +1215,7 @@ def plot_tradeoff(
             )
 
     ax.set_title(title, fontsize=21, pad=14)
-    ax.set_xlabel("Number of cut MCDs", fontsize=16)
+    ax.set_xlabel(x_label, fontsize=16)
     ax.set_ylabel(y_label, fontsize=16)
 
     if use_percent_axis:
@@ -1515,22 +1536,25 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--mcd-shape-county-col", default="COUNTYFP")
     p.add_argument("--mcd-shape-mcd-col", default="COUSUBFP")
+    add_municipality_arguments(p)
 
     return p.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    geography = geography_from_args(args)
 
     traces = load_all_traces(args)
+    geography.validate_trace_metadata(traces)
 
     if args.y_metric == "share":
         y_key = "ousted_population_share"
-        y_label = "Ousted MCD population share"
+        y_label = f"Ousted {geography.display_name} population share"
         use_percent_axis = True
     else:
         y_key = "ousted_population"
-        y_label = "Ousted MCD population"
+        y_label = f"Ousted {geography.display_name} population"
         use_percent_axis = False
 
     official_summaries: dict[str, Any] = {}
@@ -1574,8 +1598,8 @@ def main() -> None:
     needs_block_nodes = compute_official or compute_public
     block_nodes: list[dict[str, Any]] | None = None
     if needs_block_nodes:
-        block_nodes = read_block_metadata(
-            block_metadata=args.block_metadata,
+        block_nodes = geography.read_block_nodes(
+            args.block_metadata,
             block_col=args.block_col,
             county_col=args.county_col_block,
             pop_col=args.pop_col_block,
@@ -1586,6 +1610,9 @@ def main() -> None:
         )
 
     if reuse_official:
+        geography.assert_compatible_metadata(
+            load_json(official_summary_path.with_suffix(".municipality.json"))
+        )
         official_summaries = load_json(official_summary_path)
         if not isinstance(official_summaries, dict):
             raise ValueError("--official-summary-json must contain a dict keyed by official plan label.")
@@ -1599,13 +1626,18 @@ def main() -> None:
             min_assigned_pop_share=args.min_assigned_pop_share,
             official_block_col=args.official_block_col,
             official_district_col=args.official_district_col,
+            geography=geography,
         )
         write_json(official_summary_path, official_summaries)
+        geography.write_metadata(official_summary_path.with_suffix(".municipality.json"))
         print(f"Wrote official summaries: {official_summary_path}")
 
     other_ensemble_summaries: list[dict[str, Any]] = []
 
     if reuse_public:
+        geography.assert_compatible_metadata(
+            load_json(public_summary_path.with_suffix(".municipality.json"))
+        )
         public_summaries = load_json(public_summary_path)
         if not isinstance(public_summaries, list):
             raise ValueError("--public-summary-json must contain a list of public-plan summaries.")
@@ -1619,6 +1651,7 @@ def main() -> None:
             min_assigned_pop_share=args.min_assigned_pop_share,
             public_block_col=args.public_block_col,
             public_district_col=args.public_district_col,
+            geography=geography,
         )
 
         if args.public_manifest_out:
@@ -1629,6 +1662,7 @@ def main() -> None:
 
         if args.public_summary_json:
             write_json(public_summary_path, public_summaries)
+            geography.write_metadata(public_summary_path.with_suffix(".municipality.json"))
             print(f"Wrote public summaries: {public_summary_path}")
 
     if args.include_other_ensemble:
@@ -1655,6 +1689,11 @@ def main() -> None:
         title=args.title,
         y_key=y_key,
         y_label=y_label,
+        x_label=(
+            "Number of cut Places"
+            if geography.mode == "PLACE"
+            else "Number of cut MCDs"
+        ),
         use_percent_axis=use_percent_axis,
         label_references=not args.no_labels,
         label_public=args.label_public,

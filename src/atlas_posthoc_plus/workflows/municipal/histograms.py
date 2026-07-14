@@ -46,6 +46,11 @@ from atlas_posthoc.observables.municipal_splits import (
     MunicipalSplitTrace,
     compute_municipal_split_statistics_for_assignment,
 )
+from atlas_posthoc_plus.workflows.municipal.geography import (
+    MunicipalGeography,
+    add_municipality_arguments,
+    geography_from_args,
+)
 
 
 DEFAULT_TRACES_JSON = Path("/mnt/data/municipal_split_traces(1).json")
@@ -364,6 +369,10 @@ def load_municipal_split_traces(path: str | Path) -> list[MunicipalSplitTrace]:
                 n_maps=int(item["n_maps"]),
                 municipality_cols=list(item.get("municipality_cols", ["COUNTY", "MCD"])),
                 pop_col=str(item.get("pop_col", "POP20")),
+                geography_mode=item.get("geography_mode", "COUSUB"),
+                graph_path=item.get("graph_path"),
+                population_basis=item.get("population_basis", "POP20"),
+                represented_population=item.get("represented_population"),
             )
         )
     return traces
@@ -377,6 +386,7 @@ def compute_reference_summaries(
     remedial_path: str | Path,
     assignment_block_col: str | None = None,
     assignment_district_col: str | None = None,
+    geography: MunicipalGeography | None = None,
 ) -> dict[str, Any]:
     plan_files = {
         "Enacted ('25)": enacted_path,
@@ -391,14 +401,20 @@ def compute_reference_summaries(
             block_col=assignment_block_col,
             district_col=assignment_district_col,
         )
-        summary = compute_municipal_split_statistics_for_assignment(
-            assignment,
-            block_nodes,
-            municipality_cols=("COUNTY", "MCD"),
-            node_id_col="id",
-            pop_col="POP20",
-            skip_missing_municipality=True,
-            require_complete_assignment=False,
+        summary = (
+            geography.summarize_assignment(
+                assignment, block_nodes, require_complete_assignment=True
+            )
+            if geography is not None
+            else compute_municipal_split_statistics_for_assignment(
+                assignment,
+                block_nodes,
+                municipality_cols=("COUNTY", "MCD"),
+                node_id_col="id",
+                pop_col="POP20",
+                skip_missing_municipality=True,
+                require_complete_assignment=False,
+            )
         )
         summaries[label] = summary
     return summaries
@@ -555,6 +571,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional JSON path for the computed reference plan summaries.",
     )
+    add_municipality_arguments(parser)
 
     args = parser.parse_args()
 
@@ -565,7 +582,11 @@ def parse_args() -> argparse.Namespace:
             "usable with --mcd-shapefile."
         )
 
-    if args.block_mcd_col is None and args.mcd_shapefile is None:
+    if (
+        args.municipality_mode == "COUSUB"
+        and args.block_mcd_col is None
+        and args.mcd_shapefile is None
+    ):
         parser.error(
             "The block metadata needs an MCD source. Provide either "
             "--block-mcd-col if the block file already has MCDs, or "
@@ -577,12 +598,14 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    geography = geography_from_args(args)
 
     print("Loading municipal split traces:", args.traces_json)
     traces = load_municipal_split_traces(args.traces_json)
+    geography.validate_trace_metadata(traces)
 
     print("Loading block metadata:", args.block_metadata)
-    block_nodes = read_block_metadata(
+    block_nodes = geography.read_block_nodes(
         args.block_metadata,
         block_col=args.block_col,
         county_col=args.county_col,
@@ -602,6 +625,7 @@ def main() -> None:
         remedial_path=args.remedial,
         assignment_block_col=args.assignment_block_col,
         assignment_district_col=args.assignment_district_col,
+        geography=geography,
     )
 
     for label, summary in reference_summaries.items():
@@ -623,6 +647,7 @@ def main() -> None:
 
     reference_json = args.reference_json or args.output.with_name(args.output.stem + "_reference_summaries.json")
     write_reference_json(reference_json, reference_summaries)
+    geography.write_metadata(reference_json.with_suffix(".municipality.json"))
     print("Wrote reference summary JSON:", reference_json)
 
 

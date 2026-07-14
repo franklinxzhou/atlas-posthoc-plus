@@ -56,6 +56,11 @@ from atlas_posthoc_plus.io.chain_sweep import (
     cached_compliance,
     configured_sweep,
 )
+from atlas_posthoc_plus.workflows.municipal.geography import (
+    MunicipalGeography,
+    add_municipality_arguments,
+    geography_from_args,
+)
 
 
 # =============================================================================
@@ -295,7 +300,8 @@ def load_graph_nodes(
         clean[county_col] = str(clean[county_col])
 
         for col in municipality_cols:
-            clean[col] = normalize_token(clean[col])
+            if not isinstance(clean[col], dict):
+                clean[col] = normalize_token(clean[col])
 
         clean[pop_col] = float(pd.to_numeric(clean[pop_col], errors="coerce"))
 
@@ -500,6 +506,7 @@ def build_compliant_municipal_split_traces(
     max_districts_per_county: int,
     thin_step: int,
     max_maps_per_chain: int | None,
+    geography: MunicipalGeography | None = None,
 ) -> tuple[list[MunicipalSplitTrace], pd.DataFrame]:
     traces: list[MunicipalSplitTrace] = []
     compliance_rows: list[dict[str, Any]] = []
@@ -522,6 +529,7 @@ def build_compliant_municipal_split_traces(
 
         double_cross_counts: list[int] = []
         worst_splits: list[int] = []
+        represented_population: float | None = None
 
         for _, districting in iter_atlasio_districtings(chain_path):
             maps_seen += 1
@@ -559,17 +567,26 @@ def build_compliant_municipal_split_traces(
                 if not comp["compliant"]:
                     continue
 
-                summary = compute_municipal_split_statistics_for_assignment(
-                    assignment,
-                    graph_nodes,
-                    municipality_cols=municipality_cols_tuple,
-                    node_id_col=node_id_col,
-                    pop_col=pop_col,
-                    skip_missing_municipality=True,
-                    require_complete_assignment=False,
-                )
+                if geography is None:
+                    summary = compute_municipal_split_statistics_for_assignment(
+                        assignment,
+                        graph_nodes,
+                        municipality_cols=municipality_cols_tuple,
+                        node_id_col=node_id_col,
+                        pop_col=pop_col,
+                        skip_missing_municipality=True,
+                        require_complete_assignment=False,
+                    )
+                else:
+                    summary = geography.summarize_assignment(
+                        assignment,
+                        graph_nodes,
+                        node_id_col=node_id_col,
+                        pop_col=pop_col,
+                    )
 
                 c, op, os = _summary_to_trace_values(summary, pop_col=pop_col)
+                represented_population = getattr(summary, "represented_population", None)
 
                 proposals.append((maps_seen - 1) * 10000)
                 n_cut.append(c)
@@ -592,6 +609,18 @@ def build_compliant_municipal_split_traces(
             n_maps=len(proposals),
             municipality_cols=municipality_cols,
             pop_col=pop_col,
+            geography_mode=(geography.mode if geography is not None else "COUSUB"),
+            graph_path=(
+                None
+                if geography is None or geography.graph_json is None
+                else str(geography.graph_json)
+            ),
+            population_basis=(
+                pop_col
+                if geography is None or geography.mode == "COUSUB"
+                else f"{geography.mapping_column} mapping"
+            ),
+            represented_population=represented_population,
         )
         traces.append(trace)
 
@@ -640,6 +669,10 @@ def trace_to_dict(trace: MunicipalSplitTrace) -> dict[str, Any]:
         "n_maps": int(trace.n_maps),
         "municipality_cols": list(trace.municipality_cols),
         "pop_col": trace.pop_col,
+        "geography_mode": trace.geography_mode,
+        "graph_path": trace.graph_path,
+        "population_basis": trace.population_basis,
+        "represented_population": trace.represented_population,
     }
 
 
@@ -930,6 +963,7 @@ def compute_reference_summaries(
     remedial_path: str | Path,
     assignment_block_col: str | None = None,
     assignment_district_col: str | None = None,
+    geography: MunicipalGeography | None = None,
 ) -> dict[str, Any]:
     plan_files = {
         "Enacted ('25)": enacted_path,
@@ -945,14 +979,20 @@ def compute_reference_summaries(
             block_col=assignment_block_col,
             district_col=assignment_district_col,
         )
-        summary = compute_municipal_split_statistics_for_assignment(
-            assignment,
-            block_nodes,
-            municipality_cols=("COUNTY", "MCD"),
-            node_id_col="id",
-            pop_col="POP20",
-            skip_missing_municipality=True,
-            require_complete_assignment=False,
+        summary = (
+            geography.summarize_assignment(
+                assignment, block_nodes, require_complete_assignment=True
+            )
+            if geography is not None
+            else compute_municipal_split_statistics_for_assignment(
+                assignment,
+                block_nodes,
+                municipality_cols=("COUNTY", "MCD"),
+                node_id_col="id",
+                pop_col="POP20",
+                skip_missing_municipality=True,
+                require_complete_assignment=False,
+            )
         )
         summaries[label] = summary
 
@@ -1113,12 +1153,14 @@ def parse_args() -> argparse.Namespace:
         "--title",
         default="Municipal split histograms under compliant ensemble",
     )
+    add_municipality_arguments(parser)
 
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    geography = geography_from_args(args, graph_json=args.graph_path)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1158,7 +1200,7 @@ def main() -> None:
         node_id_col=args.node_id_col,
         name_col=args.name_col,
         county_col=args.county_col,
-        municipality_cols=args.municipality_cols,
+        municipality_cols=list(geography.municipality_columns),
         pop_col=args.pop_col,
     )
     print(f"Loaded {len(graph_nodes):,} graph nodes.")
@@ -1173,11 +1215,12 @@ def main() -> None:
         node_id_col=args.node_id_col,
         name_col=args.name_col,
         county_col=args.county_col,
-        municipality_cols=args.municipality_cols,
+        municipality_cols=list(geography.municipality_columns),
         pop_col=args.pop_col,
         max_districts_per_county=args.max_districts_per_county,
         thin_step=args.thin_step,
         max_maps_per_chain=args.max_maps_per_chain,
+        geography=geography,
     )
 
     compliance_summary.to_csv(compliance_summary_path, index=False)
@@ -1191,7 +1234,7 @@ def main() -> None:
         raise RuntimeError("No compliant maps retained from the chains.")
 
     print("\n[3/5] Loading block metadata for reference plans...")
-    block_nodes = read_block_metadata(
+    block_nodes = geography.read_block_nodes(
         args.block_metadata,
         block_col=args.block_col,
         county_col=args.county_col_block,
@@ -1211,6 +1254,7 @@ def main() -> None:
         remedial_path=args.remedial,
         assignment_block_col=args.assignment_block_col,
         assignment_district_col=args.assignment_district_col,
+        geography=geography,
     )
 
     for label, summary in reference_summaries.items():
@@ -1221,6 +1265,8 @@ def main() -> None:
         )
 
     write_reference_json(reference_json, reference_summaries)
+    geography.write_metadata(args.output_dir / "municipal-geography.json")
+    geography.write_metadata(reference_json.with_suffix(".municipality.json"))
     print(f"Wrote reference summaries: {reference_json}")
 
     print("\n[5/5] Plotting...")
