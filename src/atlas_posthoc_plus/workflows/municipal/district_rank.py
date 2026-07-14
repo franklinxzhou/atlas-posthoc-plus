@@ -58,6 +58,11 @@ import pandas as pd
 
 from atlas_posthoc_plus.io.atlas_records import iter_map_records
 from atlas_posthoc_plus.io.graph import read_graph_frame
+from atlas_posthoc_plus.workflows.municipal.geography import (
+    MunicipalGeography,
+    add_municipality_arguments,
+    geography_from_args,
+)
 
 
 # ---------------------------------------------------------------------
@@ -198,10 +203,15 @@ def iter_atlasio_map_records(
     yield from iter_map_records(path, skip_bad_json=skip_bad_json)
 
 
-def read_graph_nodes(graph_json: str | Path) -> pd.DataFrame:
+def read_graph_nodes(
+    graph_json: str | Path,
+    geography: MunicipalGeography | None = None,
+) -> pd.DataFrame:
     df = read_graph_frame(graph_json).copy()
 
-    required = ["id", "COUNTY", "MCD", "POP20", "G20PREDEM", "G20PREREP"]
+    geography = geography or MunicipalGeography()
+    required = ["id", "COUNTY", "POP20", "G20PREDEM", "G20PREREP"]
+    required.extend(geography.municipality_columns)
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(
@@ -213,6 +223,8 @@ def read_graph_nodes(graph_json: str | Path) -> pd.DataFrame:
 
     for col in ["POP20", "G20PREDEM", "G20PREREP"]:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+
+    geography.validate_graph_nodes(df)
 
     return df
 
@@ -533,6 +545,7 @@ def compute_district_municipal_burden(
     node_id_col: str,
     pop_col: str,
     municipality_cols: list[str],
+    geography: MunicipalGeography | None = None,
 ) -> tuple[pd.Series, pd.Series]:
     """
     District-level MCD split metrics.
@@ -545,6 +558,14 @@ def compute_district_municipal_burden(
         district. The plurality district is the district containing the largest
         population piece of that MCD.
     """
+    if geography is not None:
+        return geography.district_burden(
+            assignment,
+            graph_nodes,
+            node_id_col=node_id_col,
+            pop_col=pop_col,
+        )
+
     df = graph_nodes[[node_id_col, pop_col] + municipality_cols].merge(
         assignment.rename("DISTRICT").rename_axis(node_id_col).reset_index(),
         on=node_id_col,
@@ -638,6 +659,7 @@ def ordered_metrics_for_assignment(
     rep_col: str,
     pop_col: str,
     municipality_cols: list[str],
+    geography: MunicipalGeography | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     vote_share = compute_vote_share_by_district(
         assignment,
@@ -653,6 +675,7 @@ def ordered_metrics_for_assignment(
         node_id_col=node_id_col,
         pop_col=pop_col,
         municipality_cols=municipality_cols,
+        geography=geography,
     )
 
     return order_by_vote_share(
@@ -677,6 +700,7 @@ def build_ensemble_rank_matrices(
     rep_col: str,
     pop_col: str,
     municipality_cols: list[str],
+    geography: MunicipalGeography | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     split_rows: list[np.ndarray] = []
     ousted_rows: list[np.ndarray] = []
@@ -704,6 +728,7 @@ def build_ensemble_rank_matrices(
                     rep_col=rep_col,
                     pop_col=pop_col,
                     municipality_cols=municipality_cols,
+                    geography=geography,
                 )
 
                 split_rows.append(split_vec)
@@ -736,6 +761,8 @@ def build_official_rank_vectors(
     rep_col: str,
     pop_col: str,
     municipality_cols: list[str],
+    geography: MunicipalGeography | None = None,
+    block_nodes: list[dict[str, Any]] | None = None,
     assignment_block_col: str | None,
     assignment_district_col: str | None,
     crosswalk_block_col: str | None,
@@ -759,6 +786,29 @@ def build_official_rank_vectors(
         crosswalk_weight_col=crosswalk_weight_col,
     )
 
+    vote_share = compute_vote_share_by_district(
+        assignment,
+        graph_nodes,
+        node_id_col=node_id_col,
+        dem_col=dem_col,
+        rep_col=rep_col,
+    )
+    if geography is not None and block_nodes is not None:
+        block_assignment = pd.Series(
+            block_plan["DISTRICT"].to_numpy(),
+            index=block_plan["GEOID20"].to_numpy(),
+        )
+        split_count, ousted_pop = geography.district_burden(
+            block_assignment,
+            pd.DataFrame(block_nodes),
+            node_id_col="id",
+            pop_col="POP20",
+            require_complete_assignment=True,
+        )
+        return order_by_vote_share(
+            vote_share, split_count, ousted_pop, n_districts=n_districts
+        )
+
     return ordered_metrics_for_assignment(
         assignment,
         graph_nodes,
@@ -768,6 +818,7 @@ def build_official_rank_vectors(
         rep_col=rep_col,
         pop_col=pop_col,
         municipality_cols=municipality_cols,
+        geography=geography,
     )
 
 
@@ -822,6 +873,7 @@ def plot_one_rank(
     official_ousted: dict[str, float],
     output_path: str | Path,
     title_prefix: str,
+    municipality_label: str = "MCD",
 ) -> None:
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.8))
 
@@ -864,8 +916,8 @@ def plot_one_rank(
         edgecolor="#6b3f74",
         linewidth=0.8,
     )
-    ax.set_title("Split MCD count")
-    ax.set_xlabel("Number of split MCDs touching district")
+    ax.set_title(f"Split {municipality_label} count")
+    ax.set_xlabel(f"Number of split {municipality_label}s touching district")
     ax.set_ylabel("Fraction of plans")
     add_reference_marks(ax, official_split)
 
@@ -905,6 +957,15 @@ def parse_args() -> argparse.Namespace:
 
     p.add_argument("--output-dir", required=True)
     p.add_argument("--cache-dir", default=None)
+    p.add_argument("--block-metadata", required=True)
+    p.add_argument("--block-col", default=None)
+    p.add_argument("--county-col-block", default=None)
+    p.add_argument("--pop-col-block", default=None)
+    p.add_argument("--block-mcd-col", default=None)
+    p.add_argument("--mcd-shapefile", default=None)
+    p.add_argument("--mcd-shape-county-col", default=None)
+    p.add_argument("--mcd-shape-mcd-col", default=None)
+    add_municipality_arguments(p)
 
     # Defaults match your Ohio files.
     p.add_argument("--atlas-key-col", default="NAME")
@@ -931,13 +992,28 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    graph_nodes = read_graph_nodes(args.graph_json)
+    geography = geography_from_args(args, graph_json=args.graph_json)
+    graph_nodes = read_graph_nodes(args.graph_json, geography)
+    block_nodes = geography.read_block_nodes(
+        args.block_metadata,
+        block_col=args.block_col,
+        county_col=args.county_col_block,
+        pop_col=args.pop_col_block,
+        block_mcd_col=args.block_mcd_col,
+        mcd_shapefile=args.mcd_shapefile,
+        mcd_shape_county_col=args.mcd_shape_county_col,
+        mcd_shape_mcd_col=args.mcd_shape_mcd_col,
+    )
 
     cache_dir = Path(args.cache_dir) if args.cache_dir else None
     cache_npz = cache_dir / "district_rank_municipal_matrices.npz" if cache_dir else None
     cache_json = cache_dir / "official_plan_rank_vectors.json" if cache_dir else None
+    cache_metadata = cache_dir / "municipal-geography.json" if cache_dir else None
 
     if cache_npz is not None and cache_npz.exists() and cache_json is not None and cache_json.exists():
+        if cache_metadata is None or not cache_metadata.exists():
+            raise ValueError("Municipal cache has no geography metadata; recompute it")
+        geography.assert_compatible_metadata(json.loads(cache_metadata.read_text()))
         print(f"Loading cached matrices from {cache_npz}")
         cached = np.load(cache_npz)
         ensemble_split = cached["ensemble_split"]
@@ -966,6 +1042,7 @@ def main() -> None:
             rep_col=args.rep_col,
             pop_col=args.pop_col,
             municipality_cols=args.municipality_cols,
+            geography=geography,
         )
 
         print("Ensemble matrices built:")
@@ -994,6 +1071,8 @@ def main() -> None:
                 rep_col=args.rep_col,
                 pop_col=args.pop_col,
                 municipality_cols=args.municipality_cols,
+                geography=geography,
+                block_nodes=block_nodes,
                 assignment_block_col=args.assignment_block_col,
                 assignment_district_col=args.assignment_district_col,
                 crosswalk_block_col=args.crosswalk_block_col,
@@ -1026,9 +1105,11 @@ def main() -> None:
                 )
             print(f"Wrote cache: {cache_npz}")
             print(f"Wrote cache: {cache_json}")
+            geography.write_metadata(cache_metadata)
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    geography.write_metadata(output_dir / "municipal-geography.json")
 
     for rank0 in range(args.n_districts):
         rank_idx = rank0 + 1
@@ -1052,6 +1133,7 @@ def main() -> None:
             official_ousted=official_ousted_marks,
             output_path=output_path,
             title_prefix=args.title_prefix,
+            municipality_label=("Place" if geography.mode == "PLACE" else "MCD"),
         )
 
         print(f"Wrote {output_path}")

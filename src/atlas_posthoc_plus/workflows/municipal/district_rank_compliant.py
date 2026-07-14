@@ -43,6 +43,11 @@ from atlas_posthoc_plus.io.chain_sweep import (
     configured_sweep,
 )
 from atlas_posthoc_plus.io.graph import read_graph_frame
+from atlas_posthoc_plus.workflows.municipal.geography import (
+    MunicipalGeography,
+    add_municipality_arguments,
+    geography_from_args,
+)
 
 
 # ---------------------------------------------------------------------
@@ -192,10 +197,15 @@ def iter_atlasio_map_records(path: str | Path):
     yield from iter_map_records(path)
 
 
-def read_graph_nodes(graph_json: str | Path) -> pd.DataFrame:
+def read_graph_nodes(
+    graph_json: str | Path,
+    geography: MunicipalGeography | None = None,
+) -> pd.DataFrame:
     df = read_graph_frame(graph_json).copy()
 
-    required = ["id", "NAME", "ORIG_NAME", "COUNTY", "MCD", "POP20", "G20PREDEM", "G20PREREP"]
+    geography = geography or MunicipalGeography()
+    required = ["id", "NAME", "ORIG_NAME", "COUNTY", "POP20", "G20PREDEM", "G20PREREP"]
+    required.extend(geography.municipality_columns)
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(
@@ -208,9 +218,12 @@ def read_graph_nodes(graph_json: str | Path) -> pd.DataFrame:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
 
     df["COUNTY"] = df["COUNTY"].map(normalize_token)
-    df["MCD"] = df["MCD"].map(normalize_token)
+    if geography.mode == "COUSUB":
+        df[geography.scalar_column] = df[geography.scalar_column].map(normalize_token)
     df["NAME"] = df["NAME"].map(normalize_token)
     df["ORIG_NAME"] = df["ORIG_NAME"].map(normalize_token)
+
+    geography.validate_graph_nodes(df)
 
     return df
 
@@ -413,6 +426,7 @@ def compute_district_municipal_burden(
     node_id_col: str,
     pop_col: str,
     municipality_cols: list[str],
+    geography: MunicipalGeography | None = None,
 ) -> tuple[pd.Series, pd.Series]:
     """
     For each district:
@@ -420,6 +434,13 @@ def compute_district_municipal_burden(
       ousted_pop[d]  = total population in district d that lies outside each
                        split municipality's plurality district
     """
+    if geography is not None:
+        return geography.district_burden(
+            assignment,
+            nodes_df,
+            node_id_col=node_id_col,
+            pop_col=pop_col,
+        )
     df = nodes_df[[node_id_col, pop_col] + municipality_cols].merge(
         assignment.rename("DISTRICT").rename_axis(node_id_col).reset_index(),
         on=node_id_col,
@@ -520,6 +541,7 @@ def build_compliant_ensemble_rank_matrices(
     rep_col: str,
     pop_col: str,
     municipality_cols: list[str],
+    geography: MunicipalGeography | None = None,
     max_districts_per_county: int,
     max_maps_per_chain: int | None,
 ) -> tuple[np.ndarray, np.ndarray, pd.DataFrame]:
@@ -583,6 +605,7 @@ def build_compliant_ensemble_rank_matrices(
                     node_id_col=node_id_col,
                     pop_col=pop_col,
                     municipality_cols=municipality_cols,
+                    geography=geography,
                 )
                 split_vec, ousted_vec, ordered = order_rank_vectors(
                     vote_share,
@@ -906,7 +929,7 @@ def compute_official_rank_vectors(
     label: str,
     baf_path: str | Path,
     crosswalk: pd.DataFrame,
-    block_nodes: pd.DataFrame,
+    block_nodes: list[dict[str, Any]] | pd.DataFrame,
     graph_nodes: pd.DataFrame,
     official_key_col: str,
     n_districts: int,
@@ -915,6 +938,7 @@ def compute_official_rank_vectors(
     rep_col: str,
     assignment_block_col: str | None,
     assignment_district_col: str | None,
+    geography: MunicipalGeography | None = None,
 ) -> tuple[np.ndarray, np.ndarray, pd.DataFrame]:
     block_plan = read_block_assignment_excel(
         baf_path,
@@ -939,13 +963,26 @@ def compute_official_rank_vectors(
     )
 
     # Municipal burden directly from block-level assignment
-    split_count, ousted_pop = compute_district_municipal_burden(
-        pd.Series(block_plan["DISTRICT"].to_numpy(), index=block_plan["GEOID20"].to_numpy()),
-        block_nodes.rename(columns={"GEOID20": "id"}).copy(),
-        node_id_col="id",
-        pop_col="POP20",
-        municipality_cols=["COUNTY", "MCD"],
+    block_frame = pd.DataFrame(block_nodes)
+    block_assignment = pd.Series(
+        block_plan["DISTRICT"].to_numpy(), index=block_plan["GEOID20"].to_numpy()
     )
+    if geography is not None:
+        split_count, ousted_pop = geography.district_burden(
+            block_assignment,
+            block_frame,
+            node_id_col="id",
+            pop_col="POP20",
+            require_complete_assignment=True,
+        )
+    else:
+        split_count, ousted_pop = compute_district_municipal_burden(
+            block_assignment,
+            block_frame,
+            node_id_col="id",
+            pop_col="POP20",
+            municipality_cols=["COUNTY", "MCD"],
+        )
 
     split_vec, ousted_vec, ordered = order_rank_vectors(
         vote_share,
@@ -1008,6 +1045,7 @@ def plot_one_rank(
     official_ousted: dict[str, float],
     output_path: str | Path,
     title_prefix: str,
+    municipality_label: str = "MCD",
 ) -> None:
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.8))
 
@@ -1050,8 +1088,8 @@ def plot_one_rank(
         edgecolor="#6b3f74",
         linewidth=0.8,
     )
-    ax.set_title("Split MCD count")
-    ax.set_xlabel("Number of split MCDs touching district")
+    ax.set_title(f"Split {municipality_label} count")
+    ax.set_xlabel(f"Number of split {municipality_label}s touching district")
     ax.set_ylabel("Fraction of compliant plans")
     add_reference_marks(ax, official_split)
 
@@ -1118,12 +1156,14 @@ def parse_args() -> argparse.Namespace:
 
     p.add_argument("--title-prefix", default="Ohio Congressional")
     p.add_argument("--write-cache", action="store_true")
+    add_municipality_arguments(p)
 
     return p.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    geography = geography_from_args(args, graph_json=args.graph_json)
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1133,7 +1173,7 @@ def main() -> None:
     print("=" * 80)
 
     print("\n[1/5] Loading graph nodes...")
-    graph_nodes = read_graph_nodes(args.graph_json)
+    graph_nodes = read_graph_nodes(args.graph_json, geography)
     print(f"Loaded {len(graph_nodes):,} graph nodes.")
 
     print("\n[2/5] Building compliant ensemble rank matrices...")
@@ -1148,6 +1188,7 @@ def main() -> None:
         rep_col=args.rep_col,
         pop_col=args.pop_col,
         municipality_cols=args.municipality_cols,
+        geography=geography,
         max_districts_per_county=args.max_districts_per_county,
         max_maps_per_chain=args.max_maps_per_chain,
     )
@@ -1162,7 +1203,7 @@ def main() -> None:
 
     print("\n[3/5] Loading crosswalk and block metadata...")
     crosswalk = read_crosswalk(args.crosswalk_csv)
-    block_nodes = read_block_metadata(
+    block_nodes = geography.read_block_nodes(
         args.block_metadata,
         block_col=args.block_col,
         county_col=args.county_col_block,
@@ -1200,6 +1241,7 @@ def main() -> None:
             rep_col=args.rep_col,
             assignment_block_col=args.assignment_block_col,
             assignment_district_col=args.assignment_district_col,
+            geography=geography,
         )
         official_split[label] = split_vec
         official_ousted[label] = ousted_vec
@@ -1228,6 +1270,8 @@ def main() -> None:
         official_df = pd.concat(official_rows, ignore_index=True)
         official_df.to_csv(output_dir / "district_rank_municipal_official_rows.csv", index=False)
 
+    geography.write_metadata(output_dir / "municipal-geography.json")
+
     print("\n[5/5] Plotting 15 district-rank histograms...")
     for rank0 in range(args.n_districts):
         rank_idx = rank0 + 1
@@ -1245,6 +1289,7 @@ def main() -> None:
             official_ousted=official_ousted_marks,
             output_path=output_path,
             title_prefix=args.title_prefix,
+            municipality_label=("Place" if geography.mode == "PLACE" else "MCD"),
         )
         print(f"  Wrote {output_path.name}")
 
