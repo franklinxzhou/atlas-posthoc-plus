@@ -20,6 +20,16 @@ ousted_scale = "share"
 area_crs = "EPSG:26917"
 polsby_projected_crs = "EPSG:5070"
 
+# Baseline municipal arm.  For the PLACE comparison, use OH_pct20.json,
+# mode="PLACE", mapping_column="PLACE", the 2024 Place layer, a distinct
+# output_namespace such as "place", and inputs.block_metadata set to the
+# graph-generation checkpoint data/derived/cblocksMergeMultiPcts_OH.gpkg.
+[municipality]
+mode = "COUSUB"
+graph_json = "data/graph/OHpct20.json"
+scalar_column = "MCD"
+output_namespace = "cousub"
+
 [inputs]
 graph_json = "data/graph/OHpct20.json"
 crosswalk_csv = "scripts/oh_block_to_precinct_crosswalk.csv"

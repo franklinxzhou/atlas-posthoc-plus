@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 from atlas_posthoc_plus.config import ConfigError, ProjectConfig
@@ -10,6 +11,11 @@ BindingKind = Literal["value", "path", "values", "paths", "flag", "path_mapping"
 
 @dataclass(frozen=True)
 class OutputDefault:
+    relative: str
+
+
+@dataclass(frozen=True)
+class MunicipalityOutputDefault:
     relative: str
 
 
@@ -32,6 +38,19 @@ class WorkflowSpec:
     legacy: bool = False
 
     def build_args(self, config: ProjectConfig) -> list[str]:
+        if any(binding.key == "municipality.mode" for binding in self.bindings):
+            mode = str(config.require("municipality.mode")).upper()
+            if mode not in {"COUSUB", "PLACE"}:
+                raise ConfigError("municipality.mode must be 'COUSUB' or 'PLACE'")
+            if mode == "PLACE" and config.get("municipality.place_shapefile") in {
+                None,
+                "",
+            }:
+                raise ConfigError(
+                    f"workflow {self.name!r} requires "
+                    "'municipality.place_shapefile' in PLACE mode"
+                )
+
         args: list[str] = []
         for binding in self.bindings:
             value = config.get(binding.key)
@@ -39,6 +58,9 @@ class WorkflowSpec:
                 value = binding.default
             if isinstance(value, OutputDefault):
                 value = config.output_path(value.relative)
+            if isinstance(value, MunicipalityOutputDefault):
+                namespace = config.require("municipality.output_namespace")
+                value = config.output_path(Path(str(namespace)) / value.relative)
 
             if value is None or value == "" or value == [] or value == {}:
                 if binding.required:
@@ -90,6 +112,21 @@ class WorkflowSpec:
 
 GRAPH = Binding("--graph-json", "inputs.graph_json", "path", required=True)
 GRAPH_PATH = Binding("--graph-path", "inputs.graph_json", "path", required=True)
+MUNICIPAL_GRAPH = Binding(
+    "--graph-json", "municipality.graph_json", "path", required=True
+)
+MUNICIPAL_GRAPH_PATH = Binding(
+    "--graph-path", "municipality.graph_json", "path", required=True
+)
+MUNICIPALITY_BINDINGS = (
+    Binding("--municipality-mode", "municipality.mode", required=True),
+    Binding("--mapping-column", "municipality.mapping_column", default="PLACE"),
+    Binding("--scalar-column", "municipality.scalar_column", default="MCD"),
+    Binding("--place-shapefile", "municipality.place_shapefile", "path"),
+    Binding("--place-key-column", "municipality.place_key_column"),
+    Binding("--municipality-graph-json", "municipality.graph_json", "path"),
+    Binding("--output-namespace", "municipality.output_namespace", required=True),
+)
 CHAINS = Binding("--chain-files", "chains.files", "paths", required=True)
 CHAINS_ALT = Binding("--chains", "chains.files", "paths", required=True)
 CHAIN_IDS = Binding("--chain-ids", "chains.ids", "values")
@@ -199,20 +236,21 @@ _register(
         "standard",
         "Compute compliant-chain municipal split traces and reference-plan histograms.",
         (
-            GRAPH_PATH,
+            MUNICIPAL_GRAPH_PATH,
+            *MUNICIPALITY_BINDINGS,
             CHAINS_ALT,
             CHAIN_IDS,
             Binding(
                 "--output-dir",
                 "outputs.municipal_compliant_dir",
                 "path",
-                default=OutputDefault("municipal-compliant"),
+                default=MunicipalityOutputDefault("municipal-compliant"),
             ),
             Binding(
                 "--output-traces-json",
                 "outputs.municipal_compliant_traces",
                 "path",
-                default=OutputDefault(
+                default=MunicipalityOutputDefault(
                     "municipal-compliant/municipal_split_traces_compliant.json"
                 ),
             ),
@@ -220,7 +258,7 @@ _register(
                 "--reference-json",
                 "outputs.municipal_compliant_references",
                 "path",
-                default=OutputDefault(
+                default=MunicipalityOutputDefault(
                     "municipal-compliant/"
                     "oh_municipal_split_histograms_with_refs_reference_summaries.json"
                 ),
@@ -250,11 +288,12 @@ _register(
         "municipal",
         "Plot pooled municipal-split histograms from atlas-posthoc trace JSON.",
         (
+            *MUNICIPALITY_BINDINGS,
             Binding(
                 "--traces-json",
                 "inputs.traces_json",
                 "path",
-                default=OutputDefault(
+                default=MunicipalityOutputDefault(
                     "municipal-compliant/municipal_split_traces_compliant.json"
                 ),
             ),
@@ -272,13 +311,13 @@ _register(
                 "--output",
                 "outputs.municipal_histogram",
                 "path",
-                default=OutputDefault("municipal/municipal-histograms.png"),
+                default=MunicipalityOutputDefault("municipal/municipal-histograms.png"),
             ),
             Binding(
                 "--reference-json",
                 "outputs.reference_json",
                 "path",
-                default=OutputDefault("municipal/reference-summaries.json"),
+                default=MunicipalityOutputDefault("municipal/reference-summaries.json"),
             ),
         ),
     )
@@ -291,11 +330,12 @@ _register(
         "municipal",
         "Plot chain-wise municipal-split distributions with reference plans.",
         (
+            *MUNICIPALITY_BINDINGS,
             Binding(
                 "--traces-json",
                 "inputs.traces_json",
                 "path",
-                default=OutputDefault(
+                default=MunicipalityOutputDefault(
                     "municipal-compliant/municipal_split_traces_compliant.json"
                 ),
             ),
@@ -313,7 +353,7 @@ _register(
                 "--output",
                 "outputs.municipal_distributions",
                 "path",
-                default=OutputDefault("municipal/municipal-distributions.png"),
+                default=MunicipalityOutputDefault("municipal/municipal-distributions.png"),
             ),
         ),
     )
@@ -330,7 +370,7 @@ _register(
                 "--traces-json",
                 "inputs.traces_json",
                 "path",
-                default=OutputDefault(
+                default=MunicipalityOutputDefault(
                     "municipal-compliant/municipal_split_traces_compliant.json"
                 ),
             ),
@@ -338,7 +378,7 @@ _register(
                 "--reference-json",
                 "inputs.reference_json",
                 "path",
-                default=OutputDefault(
+                default=MunicipalityOutputDefault(
                     "municipal-compliant/"
                     "oh_municipal_split_histograms_with_refs_reference_summaries.json"
                 ),
@@ -347,7 +387,7 @@ _register(
                 "--output",
                 "outputs.municipal_tradeoff",
                 "path",
-                default=OutputDefault("municipal/municipal-tradeoff.png"),
+                default=MunicipalityOutputDefault("municipal/municipal-tradeoff.png"),
             ),
             Binding("--y-metric", "analysis.ousted_scale", default="share"),
         ),
@@ -458,6 +498,7 @@ _register(
         "municipal",
         "Add validated citizen-submitted plans to the municipal tradeoff plot.",
         (
+            *MUNICIPALITY_BINDINGS,
             Binding(
                 "--traces-json",
                 "inputs.traces_json",
@@ -482,19 +523,19 @@ _register(
                 "--output",
                 "outputs.municipal_tradeoff_public",
                 "path",
-                default=OutputDefault("municipal/municipal-tradeoff-public.png"),
+                default=MunicipalityOutputDefault("municipal/municipal-tradeoff-public.png"),
             ),
             Binding(
                 "--public-summary-json",
                 "outputs.public_summary_json",
                 "path",
-                default=OutputDefault("municipal/public-plan-summaries.json"),
+                default=MunicipalityOutputDefault("municipal/public-plan-summaries.json"),
             ),
             Binding(
                 "--public-manifest-out",
                 "outputs.public_manifest_csv",
                 "path",
-                default=OutputDefault("municipal/public-plan-manifest.csv"),
+                default=MunicipalityOutputDefault("municipal/public-plan-manifest.csv"),
             ),
             Binding("--expected-districts", "analysis.n_districts", default=15),
             Binding("--block-col", "columns.block_id"),
@@ -513,6 +554,7 @@ _register(
         "municipal",
         "Compare municipal tradeoffs across arbitrary trace collections.",
         (
+            *MUNICIPALITY_BINDINGS,
             Binding(
                 "--trace-collection",
                 "inputs.municipal_trace_collections",
@@ -528,20 +570,20 @@ _register(
                 "--official-summary-json",
                 "outputs.official_summary_json",
                 "path",
-                default=OutputDefault("municipal/official-plan-summaries.json"),
+                default=MunicipalityOutputDefault("municipal/official-plan-summaries.json"),
             ),
             Binding("--public-plan-dir", "inputs.public_plan_dir", "path"),
             Binding(
                 "--public-summary-json",
                 "outputs.public_summary_json",
                 "path",
-                default=OutputDefault("municipal/public-plan-summaries.json"),
+                default=MunicipalityOutputDefault("municipal/public-plan-summaries.json"),
             ),
             Binding(
                 "--public-manifest-out",
                 "outputs.public_manifest_csv",
                 "path",
-                default=OutputDefault("municipal/public-plan-manifest.csv"),
+                default=MunicipalityOutputDefault("municipal/public-plan-manifest.csv"),
             ),
             Binding("--block-metadata", "inputs.block_metadata", "path"),
             MCD_SHAPE,
@@ -555,7 +597,7 @@ _register(
                 "--output",
                 "outputs.municipal_tradeoff_weights",
                 "path",
-                default=OutputDefault("municipal/municipal-tradeoff-weights.png"),
+                default=MunicipalityOutputDefault("municipal/municipal-tradeoff-weights.png"),
             ),
             Binding(
                 "--reuse-official-summary",
@@ -582,6 +624,7 @@ _register(
         "external",
         "Compare municipal trace collections and optionally overlay the external ensemble.",
         (
+            *MUNICIPALITY_BINDINGS,
             Binding(
                 "--trace-collection",
                 "inputs.municipal_trace_collections",
@@ -597,20 +640,20 @@ _register(
                 "--official-summary-json",
                 "outputs.official_summary_json",
                 "path",
-                default=OutputDefault("municipal/official-plan-summaries.json"),
+                default=MunicipalityOutputDefault("municipal/official-plan-summaries.json"),
             ),
             Binding("--public-plan-dir", "inputs.public_plan_dir", "path"),
             Binding(
                 "--public-summary-json",
                 "outputs.public_summary_json",
                 "path",
-                default=OutputDefault("municipal/public-plan-summaries.json"),
+                default=MunicipalityOutputDefault("municipal/public-plan-summaries.json"),
             ),
             Binding(
                 "--public-manifest-out",
                 "outputs.public_manifest_csv",
                 "path",
-                default=OutputDefault("municipal/public-plan-manifest.csv"),
+                default=MunicipalityOutputDefault("municipal/public-plan-manifest.csv"),
             ),
             Binding("--block-metadata", "inputs.block_metadata", "path"),
             MCD_SHAPE,
@@ -625,7 +668,7 @@ _register(
                 "--output",
                 "outputs.municipal_tradeoff_weights_external",
                 "path",
-                default=OutputDefault("municipal/municipal-tradeoff-weights-external.png"),
+                default=MunicipalityOutputDefault("municipal/municipal-tradeoff-weights-external.png"),
             ),
             Binding(
                 "--include-other-ensemble",
@@ -659,8 +702,11 @@ _register(
         "Create one municipal-burden histogram per vote-share-ranked district.",
         (
             CHAINS,
-            GRAPH,
+            MUNICIPAL_GRAPH,
+            *MUNICIPALITY_BINDINGS,
             CROSSWALK,
+            BLOCK_METADATA,
+            MCD_SHAPE,
             ENACTED,
             OVERTURNED,
             REMEDIAL,
@@ -668,7 +714,7 @@ _register(
                 "--output-dir",
                 "outputs.district_rank_municipal_dir",
                 "path",
-                default=OutputDefault("district-rank-municipal"),
+                default=MunicipalityOutputDefault("district-rank-municipal"),
             ),
             N_DISTRICTS,
         ),
@@ -682,7 +728,8 @@ _register(
         "standard",
         "District-rank municipal burden histograms after county-compliance filtering.",
         (
-            GRAPH,
+            MUNICIPAL_GRAPH,
+            *MUNICIPALITY_BINDINGS,
             CHAINS,
             CROSSWALK,
             BLOCK_METADATA,
@@ -694,7 +741,7 @@ _register(
                 "--output-dir",
                 "outputs.district_rank_municipal_compliant_dir",
                 "path",
-                default=OutputDefault("district-rank-municipal-compliant"),
+                default=MunicipalityOutputDefault("district-rank-municipal-compliant"),
             ),
             N_DISTRICTS,
             MAX_COUNTY,

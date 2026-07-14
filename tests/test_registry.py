@@ -1,7 +1,9 @@
 import importlib.util
 from pathlib import Path
 
-from atlas_posthoc_plus.config import load_config
+import pytest
+
+from atlas_posthoc_plus.config import ConfigError, load_config
 from atlas_posthoc_plus.registry import SUITES, WORKFLOWS
 from atlas_posthoc_plus.runner import prepare_workflow
 
@@ -72,6 +74,10 @@ root = "project"
 "mcd_w=20" = "mcd20.json"
 "mcd_w=5" = "mcd5.json"
 
+[municipality]
+mode = "COUSUB"
+output_namespace = "cousub"
+
 [outputs]
 root = "results"
 """,
@@ -93,6 +99,84 @@ root = "results"
         f"mcd_w=20={(project / 'mcd20.json').resolve()}",
         f"mcd_w=5={(project / 'mcd5.json').resolve()}",
     ]
+    assert "--municipality-mode" in prepared.argv
+    assert "COUSUB" in prepared.argv
+    assert str((project / "results/cousub/municipal/official-plan-summaries.json").resolve()) in prepared.argv
+
+
+def test_place_registry_bindings_use_place_graph_and_namespace(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    for name in ("place.json", "blocks.shp", "places.shp", "crosswalk.csv", "plan.xlsx"):
+        (project / name).touch()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[project]
+root = "project"
+
+[chains]
+files = ["place.json"]
+
+[inputs]
+crosswalk_csv = "crosswalk.csv"
+block_metadata = "blocks.shp"
+
+[plans]
+enacted = "plan.xlsx"
+overturned = "plan.xlsx"
+remedial = "plan.xlsx"
+
+[municipality]
+mode = "PLACE"
+graph_json = "place.json"
+mapping_column = "PLACE"
+place_shapefile = "places.shp"
+output_namespace = "place"
+
+[outputs]
+root = "results"
+""",
+        encoding="utf-8",
+    )
+
+    prepared = prepare_workflow(
+        WORKFLOWS["district-rank-municipal"], load_config(config_path)
+    )
+
+    assert prepared.argv[prepared.argv.index("--municipality-mode") + 1] == "PLACE"
+    assert prepared.argv[prepared.argv.index("--graph-json") + 1] == str(
+        (project / "place.json").resolve()
+    )
+    assert prepared.argv[prepared.argv.index("--place-shapefile") + 1] == str(
+        (project / "places.shp").resolve()
+    )
+    assert prepared.argv[prepared.argv.index("--output-dir") + 1] == str(
+        (project / "results/place/district-rank-municipal").resolve()
+    )
+
+
+def test_place_registry_requires_place_layer(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[project]
+root = "project"
+[municipality]
+mode = "PLACE"
+output_namespace = "place"
+[outputs]
+root = "results"
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError, match="place_shapefile"):
+        prepare_workflow(
+            WORKFLOWS["municipal-tradeoff-weights"], load_config(config_path)
+        )
 
 
 def test_prepare_workflow_builds_polsby_histogram_args(tmp_path: Path) -> None:
