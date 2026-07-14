@@ -90,10 +90,48 @@ Important sections:
 - `[chains]`: AtlasIO chain files and chain labels.
 - `[analysis]`: district count, compliance rule, thinning, and proposal count.
 - `[inputs]`: graph, crosswalk, block/MCD geometry, CVAP, and derived files.
+- `[municipality]`: explicit COUSUB or PLACE graph/schema bindings and output namespace.
 - `[plans]`: enacted, overturned, and remedial block-assignment files.
 - `[elections.layers]`: election layers keyed by year.
 - `[outputs]`: the root directory for generated results.
 - `[workflow.NAME]`: workflow-specific options and extra CLI arguments.
+
+Municipal analyses use one of two explicit arms. The checked-in configuration
+retains the baseline:
+
+```toml
+[municipality]
+mode = "COUSUB"
+graph_json = "data/graph/OHpct20.json"
+scalar_column = "MCD"
+output_namespace = "cousub"
+```
+
+Use a separate configuration for the PLACE comparison:
+
+```toml
+[municipality]
+mode = "PLACE"
+graph_json = "data/graph/OH_pct20.json"
+mapping_column = "PLACE"
+place_shapefile = "data/raw/tl_2024_39_place"
+output_namespace = "place"
+
+[inputs]
+# This is the block-geometry checkpoint used by graph generation. Using the
+# raw TIGER block polygons changes the represented denominator by 26 people.
+block_metadata = "data/derived/cblocksMergeMultiPcts_OH.gpkg"
+```
+
+PLACE graph nodes are exploded into weighted Place-population pieces. Official,
+remedial, and public plans assign Census blocks to the same Place layer using
+each block's interior representative point; blocks outside every Place are
+excluded from the PLACE population denominator. The adapter matches the Place
+layer key to the selected graph automatically: current sampler graphs use
+`GEOID`, while older name-keyed graphs continue to use `NAME`. Set
+`place_key_column` explicitly only to override that inference. Municipality-
+scoped default outputs are written below `outputs/<output_namespace>/`, and
+cache metadata prevents cross-arm reuse.
 
 ## Running one analysis
 
@@ -305,4 +343,4 @@ python3 -m pip wheel . --no-deps
 
 ## AI Usage Acknowledgement
 
-We acknowledge the use of OpenAI Codex 5.5-xhigh in assembling this package and enabling the one-line call of analysis/plotting suites. The functionality of this package is from a handful of loose scripts in `oh-gerrymandering` repository. 
+We acknowledge the use of OpenAI Codex 5.6 Sol, under the direction and rigorous human reviewing of Franklin, in bringing loose scripts to this package and enabling the one-line call of analysis/plotting suites. The functionality of this package is from a handful of loose scripts in `oh-gerrymandering` repository. 
