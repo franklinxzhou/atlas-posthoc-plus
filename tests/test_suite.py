@@ -94,6 +94,7 @@ extra_args = ["--thin-step", "3"]
     cached: list[tuple[Path, Path, Path, int | None]] = []
 
     def fake_materialize(path, graph_path, cache_dir, **kwargs):
+        Path(cache_dir).mkdir(parents=True, exist_ok=True)
         cached.append(
             (Path(path), Path(graph_path), Path(cache_dir), kwargs.get("max_records"))
         )
@@ -101,13 +102,16 @@ extra_args = ["--thin-step", "3"]
 
     environments = []
     monkeypatch.setattr(suite, "materialize_chain_sweep", fake_materialize)
+
+    def fake_run(*args, **kwargs):
+        assert Path(kwargs["env"][SWEEP_DIR_ENV]).is_dir()
+        environments.append(kwargs["env"])
+        return SimpleNamespace(returncode=0)
+
     monkeypatch.setattr(
         suite.subprocess,
         "run",
-        lambda *args, **kwargs: (
-            environments.append(kwargs["env"])
-            or SimpleNamespace(returncode=0)
-        ),
+        fake_run,
     )
 
     code = run_suite("test", [spec.name], load_config(config_path))
@@ -118,3 +122,57 @@ extra_args = ["--thin-step", "3"]
     assert all(item[3] == 73 for item in cached)
     assert environments[0][SWEEP_LIMIT_ENV] == "73"
     assert environments[0][SWEEP_DIR_ENV].endswith("results/.atlas-chain-cache")
+    assert not (project / "results/.atlas-chain-cache").exists()
+
+
+def test_suite_removes_chain_cache_after_workflow_failure(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "chain.jsonl").touch()
+    (project / "graph.json").touch()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[project]
+root = "project"
+
+[chains]
+files = ["chain.jsonl"]
+
+[inputs]
+graph_json = "graph.json"
+
+[outputs]
+root = "results"
+""",
+        encoding="utf-8",
+    )
+    spec = WorkflowSpec(
+        "cache-failure-test",
+        "example.cache_failure_test",
+        "test",
+        "Exercise cleanup after a failed workflow.",
+        (Binding("--chains", "chains.files", "paths", required=True),),
+    )
+    monkeypatch.setitem(suite.WORKFLOWS, spec.name, spec)
+
+    def fake_materialize(path, graph_path, cache_dir, **kwargs):
+        destination = Path(cache_dir)
+        destination.mkdir(parents=True, exist_ok=True)
+        (destination / "large-cache.pickle").touch()
+        return False
+
+    monkeypatch.setattr(suite, "materialize_chain_sweep", fake_materialize)
+    monkeypatch.setattr(
+        suite.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=9),
+    )
+
+    code = run_suite("test", [spec.name], load_config(config_path))
+
+    assert code == 9
+    assert not (project / "results/.atlas-chain-cache").exists()

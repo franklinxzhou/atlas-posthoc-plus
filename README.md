@@ -204,8 +204,9 @@ Suites sweep each configured AtlasIO chain once into graph-indexed assignments
 under `outputs.root/.atlas-chain-cache`. Atlas key decoding and county-compliance
 evaluation happen only in that pass; raw-chain workflows reuse the dense
 assignments and attached compliance results. The sweep is rebuilt automatically
-when a chain, graph, or relevant filter setting changes. Standalone `run`
-commands continue to read the source chain directly.
+when a chain, graph, or relevant filter setting changes, then the cache directory
+is deleted automatically after the suite finishes (including after a workflow
+failure). Standalone `run` commands continue to read the source chain directly.
 
 Use `--keep-going` to continue after a failed workflow:
 
