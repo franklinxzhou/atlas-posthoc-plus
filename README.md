@@ -192,7 +192,8 @@ Available suites:
 - `standard`: vote comparison, compliant municipal analysis, district-rank
   municipal plots, cut edges, Polsby-Popper, CVAP, and responsiveness.
 - `municipal`: derived municipal histograms, distributions, tradeoff,
-  multi-ensemble marginal plots, and public-plan comparison.
+  multi-ensemble marginal plots, public-plan comparison, and Place-partisanship
+  diagnostics.
 - `external`: inspect and summarize the optional outside ensemble.
 - `full`: `standard`, then `municipal`, then the zoomed responsiveness figure.
 
@@ -297,6 +298,50 @@ atlas-posthoc-plus run municipal-outside-population-marginals
 atlas-posthoc-plus run municipal-cut-mcd-histograms
 ```
 
+## Place fragmentation and partisanship
+
+`municipal-place-partisanship` compares every official Place ousted-population
+share with the distribution for that same Place across county-compliant ensemble
+plans. It requires the PLACE graph arm and raw chain assignments, because the
+aggregate municipal trace JSON does not retain place-level values.
+
+Configure the PLACE arm with the graph and block checkpoint used to create it:
+
+```toml
+[municipality]
+mode = "PLACE"
+graph_json = "data/graph/OH_pct20.json"
+mapping_column = "PLACE"
+place_shapefile = "data/raw/tl_2024_39_place/tl_2024_39_place.shp"
+output_namespace = "place"
+
+[inputs]
+graph_json = "data/graph/OH_pct20.json"
+block_metadata = "data/derived/cblocksMergeMultiPcts_OH.gpkg"
+
+[workflow.municipal-place-partisanship]
+minimum_place_population = 25000
+label_count = 3
+```
+
+The configured chains must also have been sampled from `OH_pct20.json`. Then run:
+
+```bash
+atlas-posthoc-plus run municipal-place-partisanship
+```
+
+The workflow writes two named figures under the PLACE output namespace:
+
+- `place-ousted-share-by-partisanship.png`: the official value, ensemble median,
+  and ensemble middle 50% for each Place.
+- `place-ousted-share-residual-by-partisanship.png`: official ousted share minus
+  the place-specific ensemble median, centered at zero.
+
+It also writes `place-partisanship-summary.csv` with the five ensemble quantiles,
+official empirical percentile, vote allocation, and residual for every Place and
+official plan. Graph-node votes are allocated to Places in proportion to the Place
+population represented inside each node.
+
 The older `inputs.traces_json_mcd20`, `inputs.traces_json_mcd5`, and
 `inputs.traces_json_mcd1` keys are still supported as compatibility shortcuts.
 
@@ -331,6 +376,7 @@ after `--`.
 | `municipal-tradeoff-public` | `workflows.municipal.tradeoff_public` | Public-plan tradeoff |
 | `municipal-tradeoff-weights` | `workflows.municipal.tradeoff_weights` | Multi-collection municipal tradeoff |
 | `municipal-tradeoff-weights-external` | `workflows.municipal.tradeoff_weights_external` | Multi-collection tradeoff with an external ensemble |
+| `municipal-place-partisanship` | `workflows.municipal.place_partisanship` | Place-specific ensemble quartiles and partisan fragmentation residuals |
 | `inspect-external-ensemble` | `workflows.external.inspect_ensemble` | External-ensemble input inspection |
 | `summarize-external-ensemble` | `workflows.external.summarize_ensemble` | External-ensemble municipal summaries |
 

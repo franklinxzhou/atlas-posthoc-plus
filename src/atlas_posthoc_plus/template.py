@@ -85,6 +85,10 @@ refresh_public_scores = false
 reuse_official_summary = true
 reuse_public_summary = true
 
+[workflow.municipal-place-partisanship]
+minimum_place_population = 25000
+label_count = 3
+
 [workflow.municipal-tradeoff-weights-external]
 include_other_ensemble = true
 reuse_official_summary = true

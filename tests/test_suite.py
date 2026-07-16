@@ -176,3 +176,40 @@ root = "results"
 
     assert code == 9
     assert not (project / "results/.atlas-chain-cache").exists()
+
+
+def test_suite_skips_workflow_for_other_municipality_mode(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[project]
+root = "project"
+[municipality]
+mode = "COUSUB"
+output_namespace = "cousub"
+[outputs]
+root = "results"
+""",
+        encoding="utf-8",
+    )
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("subprocess should not run for a skipped workflow")
+
+    monkeypatch.setattr(suite.subprocess, "run", fail_if_called)
+    code = run_suite(
+        "test",
+        ["municipal-place-partisanship"],
+        load_config(config_path),
+    )
+
+    assert code == 0
+    manifest = json.loads(
+        (project / "results/suite-test-manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["results"] == []

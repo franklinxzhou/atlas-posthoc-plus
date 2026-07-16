@@ -173,9 +173,22 @@ def run_suite(
     dry_run: bool = False,
     keep_going: bool = False,
 ) -> int:
+    selected_workflows: list[str] = []
+    municipality_mode = str(config.get("municipality.mode", "")).upper()
+    for workflow_name in workflows:
+        required_mode = WORKFLOWS[workflow_name].required_municipality_mode
+        if required_mode is not None and required_mode != municipality_mode:
+            print(
+                f"Skipping {workflow_name}: requires municipality.mode={required_mode} "
+                f"(configured {municipality_mode or 'none'})",
+                flush=True,
+            )
+            continue
+        selected_workflows.append(workflow_name)
+
     prepared = [
         prepare_workflow(WORKFLOWS[workflow_name], config)
-        for workflow_name in workflows
+        for workflow_name in selected_workflows
     ]
 
     if dry_run:

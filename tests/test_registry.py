@@ -10,8 +10,8 @@ from atlas_posthoc_plus.runner import prepare_workflow
 
 def test_all_workflow_modules_are_registered() -> None:
     modules = {spec.module for spec in WORKFLOWS.values()}
-    assert len(WORKFLOWS) == 23
-    assert len(modules) == 23
+    assert len(WORKFLOWS) == 24
+    assert len(modules) == 24
     assert all(importlib.util.find_spec(module) is not None for module in modules)
 
 
@@ -24,6 +24,34 @@ def test_municipal_marginal_workflows_are_in_inventory() -> None:
     )
     assert "municipal-outside-population-marginals" in SUITES["municipal"]
     assert "municipal-cut-mcd-histograms" in SUITES["municipal"]
+
+
+def test_place_partisanship_workflow_is_in_municipal_suite() -> None:
+    assert WORKFLOWS["municipal-place-partisanship"].module == (
+        "atlas_posthoc_plus.workflows.municipal.place_partisanship"
+    )
+    assert "municipal-place-partisanship" in SUITES["municipal"]
+
+
+def test_place_partisanship_workflow_requires_place_mode(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[project]
+root = "."
+[municipality]
+mode = "COUSUB"
+output_namespace = "cousub"
+[outputs]
+root = "results"
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError, match="requires municipality.mode=PLACE"):
+        prepare_workflow(
+            WORKFLOWS["municipal-place-partisanship"], load_config(config_path)
+        )
 
 
 def test_prepare_workflow_builds_absolute_paths(tmp_path: Path) -> None:
@@ -205,6 +233,13 @@ root = "results"
 
     public = prepare_workflow(WORKFLOWS["municipal-tradeoff-public"], config)
     assert public.argv[public.argv.index("--traces-json") + 1] == traces_json
+
+    partisanship = prepare_workflow(
+        WORKFLOWS["municipal-place-partisanship"], config
+    )
+    assert partisanship.argv[partisanship.argv.index("--output-dir") + 1] == str(
+        (project / "results/place/municipal-place-partisanship").resolve()
+    )
 
     namespace_root = str((project / "results/place").resolve())
     for name in (

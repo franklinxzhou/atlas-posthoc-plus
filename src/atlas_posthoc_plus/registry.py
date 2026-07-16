@@ -36,8 +36,16 @@ class WorkflowSpec:
     summary: str
     bindings: tuple[Binding, ...]
     legacy: bool = False
+    required_municipality_mode: Literal["COUSUB", "PLACE"] | None = None
 
     def build_args(self, config: ProjectConfig) -> list[str]:
+        if self.required_municipality_mode is not None:
+            mode = str(config.require("municipality.mode")).upper()
+            if mode != self.required_municipality_mode:
+                raise ConfigError(
+                    f"workflow {self.name!r} requires municipality.mode="
+                    f"{self.required_municipality_mode}, found {mode}"
+                )
         if any(binding.key == "municipality.mode" for binding in self.bindings):
             mode = str(config.require("municipality.mode")).upper()
             if mode not in {"COUSUB", "PLACE"}:
@@ -698,6 +706,47 @@ _register(
 
 _register(
     WorkflowSpec(
+        "municipal-place-partisanship",
+        "atlas_posthoc_plus.workflows.municipal.place_partisanship",
+        "municipal",
+        "Compare official Place fragmentation with place-specific ensemble distributions.",
+        (
+            MUNICIPAL_GRAPH,
+            *MUNICIPALITY_BINDINGS,
+            CHAINS,
+            BLOCK_METADATA,
+            ENACTED,
+            OVERTURNED,
+            REMEDIAL,
+            Binding(
+                "--output-dir",
+                "outputs.municipal_place_partisanship_dir",
+                "path",
+                default=MunicipalityOutputDefault("municipal-place-partisanship"),
+            ),
+            MAX_COUNTY,
+            MAX_MAPS,
+            Binding("--block-col", "columns.block_id"),
+            Binding("--county-col-block", "columns.block_county"),
+            Binding("--pop-col-block", "columns.block_population"),
+            Binding("--place-name-column", "municipality.place_name_column"),
+            Binding(
+                "--minimum-place-population",
+                "workflow.municipal-place-partisanship.minimum_place_population",
+                default=25000,
+            ),
+            Binding(
+                "--label-count",
+                "workflow.municipal-place-partisanship.label_count",
+                default=3,
+            ),
+        ),
+        required_municipality_mode="PLACE",
+    )
+)
+
+_register(
+    WorkflowSpec(
         "district-rank-municipal",
         "atlas_posthoc_plus.workflows.municipal.district_rank",
         "municipal",
@@ -1070,6 +1119,7 @@ PIPELINES: dict[str, tuple[str, ...]] = {
         "municipal-outside-population-marginals",
         "municipal-cut-mcd-histograms",
         "municipal-tradeoff-public",
+        "municipal-place-partisanship",
     ),
     "external": (
         "inspect-external-ensemble",
