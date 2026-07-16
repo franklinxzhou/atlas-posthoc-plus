@@ -413,7 +413,7 @@ _register(
                 "--reference-json",
                 "inputs.reference_json",
                 "path",
-                default=OutputDefault(
+                default=MunicipalityOutputDefault(
                     "municipal-compliant/"
                     "oh_municipal_split_histograms_with_refs_reference_summaries.json"
                 ),
@@ -422,7 +422,7 @@ _register(
                 "--output",
                 "outputs.municipal_outside_population_marginals",
                 "path",
-                default=OutputDefault(
+                default=MunicipalityOutputDefault(
                     "municipal/municipal-outside-population-marginals.png"
                 ),
             ),
@@ -465,7 +465,7 @@ _register(
                 "--reference-json",
                 "inputs.reference_json",
                 "path",
-                default=OutputDefault(
+                default=MunicipalityOutputDefault(
                     "municipal-compliant/"
                     "oh_municipal_split_histograms_with_refs_reference_summaries.json"
                 ),
@@ -474,7 +474,9 @@ _register(
                 "--output",
                 "outputs.municipal_cut_mcd_histograms",
                 "path",
-                default=OutputDefault("municipal/municipal-cut-mcd-histograms.png"),
+                default=MunicipalityOutputDefault(
+                    "municipal/municipal-cut-mcd-histograms.png"
+                ),
             ),
             Binding(
                 "--include-other-ensemble",
@@ -503,7 +505,7 @@ _register(
                 "--traces-json",
                 "inputs.traces_json",
                 "path",
-                default=OutputDefault(
+                default=MunicipalityOutputDefault(
                     "municipal-compliant/municipal_split_traces_compliant.json"
                 ),
             ),
@@ -511,7 +513,7 @@ _register(
                 "--reference-json",
                 "inputs.reference_json",
                 "path",
-                default=OutputDefault(
+                default=MunicipalityOutputDefault(
                     "municipal-compliant/"
                     "oh_municipal_split_histograms_with_refs_reference_summaries.json"
                 ),

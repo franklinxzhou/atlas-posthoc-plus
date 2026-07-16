@@ -156,6 +156,67 @@ root = "results"
     )
 
 
+def test_place_municipal_pipeline_defaults_share_namespace(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[project]
+root = "project"
+
+[chains]
+files = ["chain.jsonl"]
+
+[inputs]
+block_metadata = "blocks.gpkg"
+public_plan_dir = "public-plans"
+
+[plans]
+enacted = "enacted.xlsx"
+overturned = "overturned.xlsx"
+remedial = "remedial.xlsx"
+
+[municipality]
+mode = "PLACE"
+graph_json = "place.json"
+mapping_column = "PLACE"
+place_shapefile = "places.shp"
+output_namespace = "place"
+
+[outputs]
+root = "results"
+""",
+        encoding="utf-8",
+    )
+    config = load_config(config_path)
+
+    producer = prepare_workflow(WORKFLOWS["municipal-histograms-compliant"], config)
+    reference_json = producer.argv[producer.argv.index("--reference-json") + 1]
+    traces_json = producer.argv[producer.argv.index("--output-traces-json") + 1]
+
+    for name in (
+        "municipal-outside-population-marginals",
+        "municipal-cut-mcd-histograms",
+        "municipal-tradeoff-public",
+    ):
+        consumer = prepare_workflow(WORKFLOWS[name], config)
+        assert consumer.argv[consumer.argv.index("--reference-json") + 1] == reference_json
+
+    public = prepare_workflow(WORKFLOWS["municipal-tradeoff-public"], config)
+    assert public.argv[public.argv.index("--traces-json") + 1] == traces_json
+
+    namespace_root = str((project / "results/place").resolve())
+    for name in (
+        "municipal-outside-population-marginals",
+        "municipal-cut-mcd-histograms",
+        "municipal-tradeoff-public",
+    ):
+        consumer = prepare_workflow(WORKFLOWS[name], config)
+        output = consumer.argv[consumer.argv.index("--output") + 1]
+        assert output.startswith(namespace_root)
+
+
 def test_place_registry_requires_place_layer(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()
