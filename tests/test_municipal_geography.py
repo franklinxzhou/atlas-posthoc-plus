@@ -52,6 +52,33 @@ def test_place_graph_rows_explode_mappings_and_exclude_empty_nodes(tmp_path: Pat
     assert rows["population"].sum() == 100
 
 
+def test_place_layer_directory_resolves_to_its_shapefile(tmp_path: Path) -> None:
+    place_directory = tmp_path / "tl_2024_39_place"
+    place_directory.mkdir()
+    place_shapefile = place_directory / "tl_2024_39_place.shp"
+    place_shapefile.touch()
+    for suffix in (".dbf", ".prj", ".shx"):
+        (place_directory / f"tl_2024_39_place{suffix}").touch()
+
+    geography = MunicipalGeography(
+        mode="PLACE",
+        place_shapefile=place_directory,
+        output_namespace="place",
+    )
+
+    assert geography.place_shapefile == place_shapefile
+
+
+def test_ambiguous_place_layer_directory_requires_explicit_file(tmp_path: Path) -> None:
+    place_directory = tmp_path / "places"
+    place_directory.mkdir()
+    (place_directory / "north.shp").touch()
+    (place_directory / "south.shp").touch()
+
+    with pytest.raises(ValueError, match="multiple .shp files"):
+        MunicipalGeography(mode="PLACE", place_shapefile=place_directory)
+
+
 def test_place_district_burden_explodes_before_grouping(tmp_path: Path) -> None:
     place_layer = tmp_path / "places.geojson"
     place_layer.touch()

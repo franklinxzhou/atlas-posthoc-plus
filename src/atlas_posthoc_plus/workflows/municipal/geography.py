@@ -26,6 +26,54 @@ from atlas_posthoc.observables.municipal_splits import (
 MunicipalityMode = Literal["COUSUB", "PLACE"]
 
 
+_DATASET_EXTENSIONS = (
+    ".gpkg",
+    ".shp",
+    ".geojson",
+    ".json",
+    ".zip",
+    ".parquet",
+    ".pq",
+    ".csv",
+)
+
+
+def _resolve_dataset_path(path: str | Path) -> Path:
+    """Resolve a dataset file, accepting a directory containing one dataset.
+
+    TIGER/Line layers are commonly configured by their extracted directory
+    rather than by the ``.shp`` member inside it.  Search extensions in
+    spatial-data priority order and reject genuinely ambiguous directories.
+    """
+    path = Path(path)
+    if not path.is_dir():
+        return path
+
+    for extension in _DATASET_EXTENSIONS:
+        candidates = sorted(
+            candidate
+            for candidate in path.iterdir()
+            if candidate.is_file() and candidate.suffix.lower() == extension
+        )
+        if not candidates:
+            continue
+        if len(candidates) == 1:
+            return candidates[0]
+
+        same_stem = [candidate for candidate in candidates if candidate.stem == path.name]
+        if len(same_stem) == 1:
+            return same_stem[0]
+        examples = ", ".join(candidate.name for candidate in candidates[:5])
+        raise ValueError(
+            f"Dataset directory {path} contains multiple {extension} files "
+            f"({examples}); configure the intended file explicitly"
+        )
+
+    raise FileNotFoundError(
+        f"Dataset directory {path} contains none of: {', '.join(_DATASET_EXTENSIONS)}"
+    )
+
+
 def _normalize_token(value: Any) -> str:
     if value is None or pd.isna(value):
         return ""
@@ -57,6 +105,7 @@ def _resolve_column(
 
 
 def _read_spatial_or_table(path: Path) -> pd.DataFrame:
+    path = _resolve_dataset_path(path)
     suffix = path.suffix.lower()
     if suffix == ".csv":
         return pd.read_csv(path, dtype=str)
@@ -93,7 +142,11 @@ class MunicipalGeography:
         if self.graph_json is not None:
             object.__setattr__(self, "graph_json", Path(self.graph_json))
         if self.place_shapefile is not None:
-            object.__setattr__(self, "place_shapefile", Path(self.place_shapefile))
+            object.__setattr__(
+                self,
+                "place_shapefile",
+                _resolve_dataset_path(self.place_shapefile),
+            )
         if mode == "PLACE" and self.place_shapefile is None:
             raise ValueError("PLACE mode requires a place_shapefile")
         if not self.output_namespace or Path(self.output_namespace).name != self.output_namespace:
