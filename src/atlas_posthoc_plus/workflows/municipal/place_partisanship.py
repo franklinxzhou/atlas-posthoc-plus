@@ -574,23 +574,13 @@ def plot_place_ousted_share_by_partisanship(
             )
         ax.set_xlabel("Place Democratic two-party vote share")
 
-    n_places = rows.groupby("official_plan").size().min()
-    n_ensemble = int(rows["ensemble_plan_count"].iloc[0])
     figure.suptitle(
         "Official plans compared with each Place's ensemble distribution",
         x=0.5,
         ha="center",
         fontsize=10,
     )
-    figure.text(
-        0.03,
-        0.01,
-        f"{n_places} Places with population at least {minimum_population:,.0f}; "
-        f"{n_ensemble:,} compliant ensemble plans.",
-        fontsize=8,
-        color="#555555",
-    )
-    figure.subplots_adjust(top=0.84, bottom=0.19, left=0.08, right=0.98, wspace=0.08)
+    figure.subplots_adjust(top=0.84, bottom=0.13, left=0.08, right=0.98, wspace=0.08)
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(output)
@@ -652,24 +642,13 @@ def plot_place_ousted_share_residual_by_partisanship(
         if index == 0:
             ax.set_ylabel("Official minus ensemble-median ousted share")
 
-    n_places = rows.groupby("official_plan").size().min()
-    n_ensemble = int(rows["ensemble_plan_count"].iloc[0])
     figure.suptitle(
         "Official Place fragmentation relative to its ensemble expectation",
         x=0.5,
         ha="center",
         fontsize=10,
     )
-    figure.text(
-        0.03,
-        0.01,
-        "Negative values indicate more preservation than the ensemble median.  "
-        f"{n_places} Places with population at least {minimum_population:,.0f}; "
-        f"{n_ensemble:,} compliant ensemble plans.",
-        fontsize=8,
-        color="#555555",
-    )
-    figure.subplots_adjust(top=0.84, bottom=0.19, left=0.08, right=0.98, wspace=0.08)
+    figure.subplots_adjust(top=0.84, bottom=0.13, left=0.08, right=0.98, wspace=0.08)
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(output)

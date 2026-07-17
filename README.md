@@ -342,6 +342,40 @@ official empirical percentile, vote allocation, and residual for every Place and
 official plan. Graph-node votes are allocated to Places in proportion to the Place
 population represented inside each node.
 
+## City partisan context
+
+`municipal-city-partisan-context` asks whether official plans place residents of
+selected cities into unusually Democratic or Republican districts. For each city,
+it represents a plan by the Democratic two-party share of the district containing
+each overlapping graph unit. Graph-unit coordinates are weighted by their city
+population and the weights sum to one, so the resulting metrics are average
+vote-share shifts per city resident rather than totals that grow with city size.
+
+Configure the cities and run the workflow with the same PLACE graph and chains:
+
+```toml
+[workflow.municipal-city-partisan-context]
+cities = ["Cleveland", "Columbus", "Cincinnati", "Toledo", "Akron", "Dayton"]
+bins = 35
+```
+
+```bash
+atlas-posthoc-plus run municipal-city-partisan-context
+```
+
+The workflow writes one two-panel figure per city. The left panel shows each
+plan's population-normalized absolute distance from the ensemble centroid; the
+right shows its signed shift. Positive shifts place city residents in more
+Democratic district contexts than the ensemble expectation and are
+packing, while negative shifts are cracking. These are
+directional diagnostics, not by themselves proof of intent. CSV outputs retain
+the ensemble distributions, official-plan percentiles and tail probabilities,
+and the population weights and centroid coordinates used in the calculations.
+For graph units created by state-legislative splits, votes are population-
+allocated so each original precinct contributes exactly once. Official block
+assignments are projected through the same graph units using the exact Place
+population recorded for each block.
+
 The older `inputs.traces_json_mcd20`, `inputs.traces_json_mcd5`, and
 `inputs.traces_json_mcd1` keys are still supported as compatibility shortcuts.
 
@@ -377,6 +411,7 @@ after `--`.
 | `municipal-tradeoff-weights` | `workflows.municipal.tradeoff_weights` | Multi-collection municipal tradeoff |
 | `municipal-tradeoff-weights-external` | `workflows.municipal.tradeoff_weights_external` | Multi-collection tradeoff with an external ensemble |
 | `municipal-place-partisanship` | `workflows.municipal.place_partisanship` | Place-specific ensemble quartiles and partisan fragmentation residuals |
+| `municipal-city-partisan-context` | `workflows.municipal.city_partisan_context` | Population-normalized city partisan-context distances and signed shifts |
 | `inspect-external-ensemble` | `workflows.external.inspect_ensemble` | External-ensemble input inspection |
 | `summarize-external-ensemble` | `workflows.external.summarize_ensemble` | External-ensemble municipal summaries |
 

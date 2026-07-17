@@ -10,8 +10,8 @@ from atlas_posthoc_plus.runner import prepare_workflow
 
 def test_all_workflow_modules_are_registered() -> None:
     modules = {spec.module for spec in WORKFLOWS.values()}
-    assert len(WORKFLOWS) == 24
-    assert len(modules) == 24
+    assert len(WORKFLOWS) == 25
+    assert len(modules) == 25
     assert all(importlib.util.find_spec(module) is not None for module in modules)
 
 
@@ -31,6 +31,13 @@ def test_place_partisanship_workflow_is_in_municipal_suite() -> None:
         "atlas_posthoc_plus.workflows.municipal.place_partisanship"
     )
     assert "municipal-place-partisanship" in SUITES["municipal"]
+
+
+def test_city_partisan_context_workflow_is_in_municipal_suite() -> None:
+    assert WORKFLOWS["municipal-city-partisan-context"].module == (
+        "atlas_posthoc_plus.workflows.municipal.city_partisan_context"
+    )
+    assert "municipal-city-partisan-context" in SUITES["municipal"]
 
 
 def test_place_partisanship_workflow_requires_place_mode(tmp_path: Path) -> None:
@@ -239,6 +246,14 @@ root = "results"
     )
     assert partisanship.argv[partisanship.argv.index("--output-dir") + 1] == str(
         (project / "results/place/municipal-place-partisanship").resolve()
+    )
+
+    context = prepare_workflow(WORKFLOWS["municipal-city-partisan-context"], config)
+    assert context.argv[context.argv.index("--output-dir") + 1] == str(
+        (project / "results/place/municipal-city-partisan-context").resolve()
+    )
+    assert context.argv[context.argv.index("--block-metadata") + 1] == str(
+        (project / "blocks.gpkg").resolve()
     )
 
     namespace_root = str((project / "results/place").resolve())

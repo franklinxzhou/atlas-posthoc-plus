@@ -95,6 +95,10 @@ reuse_public_summary = true
 minimum_place_population = 25000
 label_count = 3
 
+[workflow.municipal-city-partisan-context]
+cities = ["Cleveland", "Columbus", "Cincinnati", "Toledo", "Akron", "Dayton"]
+bins = 35
+
 [workflow.municipal-tradeoff-weights-external]
 include_other_ensemble = true
 reuse_official_summary = true

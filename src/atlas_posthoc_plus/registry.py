@@ -747,6 +747,54 @@ _register(
 
 _register(
     WorkflowSpec(
+        "municipal-city-partisan-context",
+        "atlas_posthoc_plus.workflows.municipal.city_partisan_context",
+        "municipal",
+        "Compare each city's official partisan district context with its ensemble.",
+        (
+            MUNICIPAL_GRAPH,
+            *MUNICIPALITY_BINDINGS,
+            CHAINS,
+            BLOCK_METADATA,
+            ENACTED,
+            OVERTURNED,
+            REMEDIAL,
+            Binding(
+                "--output-dir",
+                "outputs.municipal_city_partisan_context_dir",
+                "path",
+                default=MunicipalityOutputDefault("municipal-city-partisan-context"),
+            ),
+            MAX_COUNTY,
+            MAX_MAPS,
+            Binding("--block-col", "columns.block_id"),
+            Binding("--block-pop-col", "columns.block_population"),
+            Binding("--place-name-column", "municipality.place_name_column"),
+            Binding(
+                "--cities",
+                "workflow.municipal-city-partisan-context.cities",
+                "values",
+                default=[
+                    "Cleveland",
+                    "Columbus",
+                    "Cincinnati",
+                    "Toledo",
+                    "Akron",
+                    "Dayton",
+                ],
+            ),
+            Binding(
+                "--bins",
+                "workflow.municipal-city-partisan-context.bins",
+                default=35,
+            ),
+        ),
+        required_municipality_mode="PLACE",
+    )
+)
+
+_register(
+    WorkflowSpec(
         "district-rank-municipal",
         "atlas_posthoc_plus.workflows.municipal.district_rank",
         "municipal",
@@ -1120,6 +1168,7 @@ PIPELINES: dict[str, tuple[str, ...]] = {
         "municipal-cut-mcd-histograms",
         "municipal-tradeoff-public",
         "municipal-place-partisanship",
+        "municipal-city-partisan-context",
     ),
     "external": (
         "inspect-external-ensemble",
