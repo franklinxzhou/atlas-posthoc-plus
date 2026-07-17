@@ -27,14 +27,17 @@ src/
         │   ├── vote_comparison.py
         │   └── vote_comparison_adjusted.py
         ├── municipal/
+        │   ├── city_partisan_context.py
         │   ├── compliant_histograms.py
         │   ├── cut_mcd_histograms.py
         │   ├── district_rank.py
         │   ├── district_rank_compliant.py
         │   ├── distributions.py
+        │   ├── geography.py
         │   ├── histograms.py
         │   ├── marginal_helpers.py
         │   ├── outside_population_marginals.py
+        │   ├── place_partisanship.py
         │   ├── tradeoff.py
         │   ├── tradeoff_public.py
         │   ├── tradeoff_weights.py
@@ -192,8 +195,8 @@ Available suites:
 - `standard`: vote comparison, compliant municipal analysis, district-rank
   municipal plots, cut edges, Polsby-Popper, CVAP, and responsiveness.
 - `municipal`: derived municipal histograms, distributions, tradeoff,
-  multi-ensemble marginal plots, public-plan comparison, and Place-partisanship
-  diagnostics.
+  multi-ensemble marginal plots, public-plan comparison, and Place/city
+  partisanship diagnostics.
 - `external`: inspect and summarize the optional outside ensemble.
 - `full`: `standard`, then `municipal`, then the zoomed responsiveness figure.
 
@@ -298,6 +301,15 @@ atlas-posthoc-plus run municipal-outside-population-marginals
 atlas-posthoc-plus run municipal-cut-mcd-histograms
 ```
 
+The older `inputs.traces_json_mcd20`, `inputs.traces_json_mcd5`, and
+`inputs.traces_json_mcd1` keys are still supported as compatibility shortcuts.
+
+If `reuse_official_summary` or `reuse_public_summary` is enabled but the cached
+JSON does not exist yet, the workflow recomputes the missing summary from the
+configured plan/block inputs and writes it under `outputs.root`. To make a
+collection-only plot without official-plan overlays, pass `--skip-official-plans`
+after `--`.
+
 ## Place fragmentation and partisanship
 
 `municipal-place-partisanship` compares every official Place ousted-population
@@ -342,16 +354,11 @@ official empirical percentile, vote allocation, and residual for every Place and
 official plan. Graph-node votes are allocated to Places in proportion to the Place
 population represented inside each node.
 
-## City partisan context
+## City-level district partisanship
 
-`municipal-city-partisan-context` asks whether official plans place residents of
-selected cities into unusually Democratic or Republican districts. For each city,
-it represents a plan by the Democratic two-party share of the district containing
-each overlapping graph unit. Graph-unit coordinates are weighted by their city
-population and the weights sum to one, so the resulting metrics are average
-vote-share shifts per city resident rather than totals that grow with city size.
-
-Configure the cities and run the workflow with the same PLACE graph and chains:
+`municipal-city-partisan-context` compares the districts containing residents of
+selected cities under official and simulated plans. Configure the cities and run
+it with the same PLACE graph and chains:
 
 ```toml
 [workflow.municipal-city-partisan-context]
@@ -363,27 +370,10 @@ bins = 35
 atlas-posthoc-plus run municipal-city-partisan-context
 ```
 
-The workflow writes one two-panel figure per city. The left panel shows each
-plan's population-normalized absolute distance from the ensemble centroid; the
-right shows its signed shift. Positive shifts place city residents in more
-Democratic district contexts than the ensemble expectation and are
-packing, while negative shifts are cracking. These are
-directional diagnostics, not by themselves proof of intent. CSV outputs retain
-the ensemble distributions, official-plan percentiles and tail probabilities,
-and the population weights and centroid coordinates used in the calculations.
-For graph units created by state-legislative splits, votes are population-
-allocated so each original precinct contributes exactly once. Official block
-assignments are projected through the same graph units using the exact Place
-population recorded for each block.
-
-The older `inputs.traces_json_mcd20`, `inputs.traces_json_mcd5`, and
-`inputs.traces_json_mcd1` keys are still supported as compatibility shortcuts.
-
-If `reuse_official_summary` or `reuse_public_summary` is enabled but the cached
-JSON does not exist yet, the workflow recomputes the missing summary from the
-configured plan/block inputs and writes it under `outputs.root`. To make a
-collection-only plot without official-plan overlays, pass `--skip-official-plans`
-after `--`.
+It writes one two-panel figure per city plus CSV audit tables. See
+[City-level district partisanship methodology](docs/municipal-city-partisan-context.md)
+for the formulas, population weighting, vote allocation, official-plan
+projection, interpretation, and output definitions.
 
 ## Workflow inventory
 
@@ -411,7 +401,7 @@ after `--`.
 | `municipal-tradeoff-weights` | `workflows.municipal.tradeoff_weights` | Multi-collection municipal tradeoff |
 | `municipal-tradeoff-weights-external` | `workflows.municipal.tradeoff_weights_external` | Multi-collection tradeoff with an external ensemble |
 | `municipal-place-partisanship` | `workflows.municipal.place_partisanship` | Place-specific ensemble quartiles and partisan fragmentation residuals |
-| `municipal-city-partisan-context` | `workflows.municipal.city_partisan_context` | Population-normalized city partisan-context distances and signed shifts |
+| `municipal-city-partisan-context` | `workflows.municipal.city_partisan_context` | Population-normalized city district-partisanship distances and signed shifts |
 | `inspect-external-ensemble` | `workflows.external.inspect_ensemble` | External-ensemble input inspection |
 | `summarize-external-ensemble` | `workflows.external.summarize_ensemble` | External-ensemble municipal summaries |
 
