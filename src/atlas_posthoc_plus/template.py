@@ -70,6 +70,10 @@ mcd_id = "COUSUBFP"
 [outputs]
 root = "outputs"
 
+[figures]
+# Set true for title-free Helvetica Neue figures saved as vector PDF.
+paper_mode = false
+
 [workflow.polsby-trace]
 metric = "average"
 

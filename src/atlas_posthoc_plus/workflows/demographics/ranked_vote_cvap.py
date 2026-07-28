@@ -39,6 +39,8 @@ import zipfile
 from pathlib import Path
 from typing import Any, Iterable
 
+from atlas_posthoc_plus.paper import save_figure
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -1104,7 +1106,7 @@ def plot_two_panel(
 
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output, dpi=300, bbox_inches="tight")
+    output = save_figure(fig, output, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
     print(f"Wrote {output}")

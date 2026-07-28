@@ -23,6 +23,20 @@ def _parser() -> argparse.ArgumentParser:
         default="atlas-posthoc-plus.toml",
         help="Project TOML configuration (default: atlas-posthoc-plus.toml).",
     )
+    figure_mode = parser.add_mutually_exclusive_group()
+    figure_mode.add_argument(
+        "--paper-mode",
+        dest="paper_mode",
+        action="store_true",
+        default=None,
+        help="Write title-free, publication-style vector PDF figures.",
+    )
+    figure_mode.add_argument(
+        "--no-paper-mode",
+        dest="paper_mode",
+        action="store_false",
+        help="Override figures.paper_mode and retain normal screen figures.",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("list", help="List available workflows and pipelines.")
@@ -98,7 +112,11 @@ def main(argv: list[str] | None = None) -> int:
         config = load_config(args.config)
 
         if args.command == "show":
-            prepared = prepare_workflow(get_workflow(args.workflow), config)
+            prepared = prepare_workflow(
+                get_workflow(args.workflow),
+                config,
+                paper_mode=args.paper_mode,
+            )
             print(f"cwd: {prepared.cwd}")
             print(prepared.display_command())
             return 0
@@ -121,6 +139,7 @@ def main(argv: list[str] | None = None) -> int:
                 config,
                 extra_args=extra_args,
                 dry_run=args.dry_run,
+                paper_mode=args.paper_mode,
             )
 
         if args.command in {"suite", "pipeline"}:
@@ -131,6 +150,7 @@ def main(argv: list[str] | None = None) -> int:
                 config,
                 dry_run=args.dry_run,
                 keep_going=args.keep_going,
+                paper_mode=args.paper_mode,
             )
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)

@@ -47,6 +47,8 @@ import re
 from pathlib import Path
 from typing import Any, Iterable
 
+from atlas_posthoc_plus.paper import save_figure
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -931,7 +933,7 @@ def plot_one_rank(
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, dpi=300, bbox_inches="tight")
+    save_figure(fig, output_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
 

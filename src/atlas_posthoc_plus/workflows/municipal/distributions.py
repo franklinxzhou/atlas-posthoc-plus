@@ -27,6 +27,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from atlas_posthoc_plus.paper import save_figure
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -971,10 +973,10 @@ def main() -> None:
     )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(args.output, dpi=300, bbox_inches="tight")
+    output = save_figure(fig, args.output, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    print("Wrote figure:", args.output)
+    print("Wrote figure:", output)
 
     reference_json = (
         args.reference_json

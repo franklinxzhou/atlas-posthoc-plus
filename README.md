@@ -97,7 +97,39 @@ Important sections:
 - `[plans]`: enacted, overturned, and remedial block-assignment files.
 - `[elections.layers]`: election layers keyed by year.
 - `[outputs]`: the root directory for generated results.
+- `[figures]`: optional manuscript-oriented figure rendering.
 - `[workflow.NAME]`: workflow-specific options and extra CLI arguments.
+
+### Paper mode
+
+The reference source for arXiv 2203.06552 uses PDF figure assets. Inspection of
+those assets shows Helvetica Neue/Helvetica text (with STIX for mathematical
+glyphs), while the manuscript itself loads `newtxmath`. Enable the same
+manuscript-oriented figure treatment globally with:
+
+```toml
+[figures]
+paper_mode = true
+```
+
+You can also override the configuration for one invocation:
+
+```bash
+atlas-posthoc-plus --paper-mode run municipal-histograms
+atlas-posthoc-plus --no-paper-mode suite standard
+```
+
+In paper mode, every plotting workflow:
+
+- removes axes titles and figure-level titles;
+- uses Helvetica Neue with portable Helvetica/Arial/sans-serif fallbacks;
+- writes a vector `.pdf`, even when the configured output name ends in `.png`;
+- embeds TrueType text in the PDF; and
+- labels two- and four-panel figures `(a)`, `(b)`, `(c)`, and `(d)` at the
+  upper-left of each panel.
+
+Axis labels, tick labels, legends, and annotations remain intact so each figure
+still identifies its marks without relying on the manuscript caption.
 
 Municipal analyses use one of two explicit arms. The checked-in configuration
 retains the baseline:

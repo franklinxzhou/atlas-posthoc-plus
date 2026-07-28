@@ -99,7 +99,12 @@ def _suite_environment(
     prepared: Sequence[PreparedWorkflow],
     config: ProjectConfig,
 ) -> Iterator[dict[str, str]]:
-    environment = _subprocess_environment()
+    paper_modes = {item.paper_mode for item in prepared}
+    if len(paper_modes) > 1:
+        raise ValueError("suite workflows must use one shared figure mode")
+    environment = _subprocess_environment(
+        paper_mode=paper_modes.pop() if paper_modes else False
+    )
     environment.pop(SWEEP_DIR_ENV, None)
     environment.pop(SWEEP_LIMIT_ENV, None)
     cache_dir: Path | None = None
@@ -172,6 +177,7 @@ def run_suite(
     *,
     dry_run: bool = False,
     keep_going: bool = False,
+    paper_mode: bool | None = None,
 ) -> int:
     selected_workflows: list[str] = []
     municipality_mode = str(config.get("municipality.mode", "")).upper()
@@ -187,7 +193,11 @@ def run_suite(
         selected_workflows.append(workflow_name)
 
     prepared = [
-        prepare_workflow(WORKFLOWS[workflow_name], config)
+        prepare_workflow(
+            WORKFLOWS[workflow_name],
+            config,
+            paper_mode=paper_mode,
+        )
         for workflow_name in selected_workflows
     ]
 

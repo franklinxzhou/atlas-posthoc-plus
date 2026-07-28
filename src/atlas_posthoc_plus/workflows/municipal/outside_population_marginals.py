@@ -7,6 +7,8 @@ import argparse
 from pathlib import Path
 from typing import Any
 
+from atlas_posthoc_plus.paper import save_figure
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -172,7 +174,7 @@ def plot_outside_population_marginals(
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.84 if ref_handles else 0.92))
-    fig.savefig(output, dpi=300, bbox_inches="tight")
+    output = save_figure(fig, output, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"Wrote {output}")
 

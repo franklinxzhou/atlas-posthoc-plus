@@ -1,5 +1,9 @@
 """Project-specific workflow orchestration built on :mod:`atlas_posthoc`."""
 
+from atlas_posthoc_plus.paper import apply_paper_style
+
+apply_paper_style()
+
 from atlas_posthoc_plus.config import ProjectConfig, load_config
 from atlas_posthoc_plus.registry import SUITES, WORKFLOWS, WorkflowSpec
 

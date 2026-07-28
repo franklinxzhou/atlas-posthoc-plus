@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+from atlas_posthoc_plus.paper import save_figure
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -1359,7 +1361,7 @@ def plot_tradeoff(
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
-    fig.savefig(output, dpi=300, bbox_inches="tight")
+    output = save_figure(fig, output, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"Wrote {output}")
 

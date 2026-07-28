@@ -15,6 +15,8 @@ from pathlib import Path
 import re
 from typing import Any, Mapping, Sequence
 
+from atlas_posthoc_plus.paper import save_figure
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -767,7 +769,7 @@ def plot_city_context_duo(
     figure.subplots_adjust(top=0.86, bottom=0.16, wspace=0.12)
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    figure.savefig(output)
+    output = save_figure(figure, output)
     plt.close(figure)
     return output
 

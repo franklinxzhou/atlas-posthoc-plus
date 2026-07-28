@@ -10,6 +10,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from atlas_posthoc_plus.paper import save_figure
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -673,7 +675,7 @@ def plot_histogram(
     destination = Path(outpath)
     destination.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
-    fig.savefig(destination, dpi=300, bbox_inches="tight")
+    destination = save_figure(fig, destination, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"Wrote figure to {destination}")
 

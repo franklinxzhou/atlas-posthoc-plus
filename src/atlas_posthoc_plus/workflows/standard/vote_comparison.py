@@ -13,6 +13,8 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from atlas_posthoc_plus.paper import save_figure
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -858,7 +860,7 @@ def plot_comparison_using_atlas_posthoc(
     ax.legend(loc="lower right", frameon=True, fontsize=9)
 
     fig.tight_layout()
-    fig.savefig(output_path, dpi=300)
+    output_path = save_figure(fig, output_path, dpi=300)
     plt.close(fig)
 
     print(f"\nWrote plot: {output_path}")

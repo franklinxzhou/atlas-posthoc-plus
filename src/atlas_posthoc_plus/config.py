@@ -59,6 +59,13 @@ class ProjectConfig:
         value = self.get("outputs.root", "outputs")
         return self.resolve_path(value)
 
+    @property
+    def paper_mode(self) -> bool:
+        value = self.get("figures.paper_mode", False)
+        if not isinstance(value, bool):
+            raise ConfigError("configuration value 'figures.paper_mode' must be a boolean")
+        return value
+
     def output_path(self, relative: str | Path) -> Path:
         return (self.output_root / relative).resolve()
 

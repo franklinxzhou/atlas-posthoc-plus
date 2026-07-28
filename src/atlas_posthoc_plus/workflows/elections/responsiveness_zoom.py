@@ -20,6 +20,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from atlas_posthoc_plus.paper import save_figure
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -241,7 +243,7 @@ def plot_from_csv(races: pd.DataFrame, ensemble: pd.DataFrame, official: pd.Data
     fig.suptitle(title, fontsize=19, y=0.995)
     fig.tight_layout(rect=[0, 0, 1, 0.985])
     output.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output, dpi=300, bbox_inches="tight")
+    save_figure(fig, output, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
 

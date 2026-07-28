@@ -14,6 +14,8 @@ import re
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from atlas_posthoc_plus.paper import save_figure
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -583,7 +585,7 @@ def plot_place_ousted_share_by_partisanship(
     figure.subplots_adjust(top=0.84, bottom=0.13, left=0.08, right=0.98, wspace=0.08)
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    figure.savefig(output)
+    output = save_figure(figure, output)
     plt.close(figure)
     return output
 
@@ -651,7 +653,7 @@ def plot_place_ousted_share_residual_by_partisanship(
     figure.subplots_adjust(top=0.84, bottom=0.13, left=0.08, right=0.98, wspace=0.08)
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    figure.savefig(output)
+    output = save_figure(figure, output)
     plt.close(figure)
     return output
 
