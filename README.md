@@ -21,6 +21,7 @@ src/
     ├── runner.py                      # execute one packaged workflow
     ├── suite.py                       # execute suites and write manifests
     └── workflows/
+        ├── compositor.py              # vector PDF figure composition
         ├── setup/
         │   └── crosswalk.py
         ├── standard/
@@ -207,6 +208,72 @@ python -m atlas_posthoc_plus.workflows.compactness.cut_edges ...
 ```
 
 It never invokes an external script file.
+
+## Composing figures
+
+The registered `figure-compositor` workflow combines existing paper-mode PDF
+figures without rasterizing them. Every panel names its source using a canonical
+workflow inventory name and may point to a different project TOML:
+
+```toml
+[outputs]
+figure_compositor = "outputs/manuscript/structural-comparison.pdf"
+
+[workflow.figure-compositor]
+design = '''
+AAB
+#CB
+'''
+widths = [1, 1, 0.85]
+heights = [1, 1.15]
+width = 10
+height = 6.5
+margin = 0.25
+gap = 0.15
+
+[[workflow.figure-compositor.panels]]
+id = "A"
+workflow = "polsby-histogram"
+config = "configs/baseline.toml"
+figure = "outputs/polsby/polsby_histogram.pdf"
+
+[[workflow.figure-compositor.panels]]
+id = "B"
+workflow = "responsiveness"
+config = "configs/baseline.toml"
+figure = "outputs/responsiveness/responsiveness.pdf"
+
+[[workflow.figure-compositor.panels]]
+id = "C"
+workflow = "municipal-tradeoff"
+config = "configs/place.toml"
+figure = "outputs/place/municipal/tradeoff.pdf"
+```
+
+Generate each source with paper mode enabled, then validate and compose:
+
+```bash
+atlas-posthoc-plus doctor figure-compositor
+atlas-posthoc-plus run figure-compositor
+```
+
+In a compact design, repeated IDs span cells and `#` or `.` creates a spacer.
+Whitespace-delimited rows may be used for multi-character IDs. Omit `design`
+and set `ncol` or `nrow` for automatic row-major wrapping; `ncol = 1` stacks
+panels and `nrow = 1` places them side by side. `widths` and `heights` set
+relative grid sizes. The compositor centers each source page without changing
+its aspect ratio, applies consistent margins and gaps, and adds `(a)`, `(b)`,
+... in panel declaration order.
+
+Panel `figure` paths are resolved against the `project.root` in that panel's
+source `config`; omit `config` to use the compositor's TOML. Optional panel
+keys include one-based `page`, `horizontal_align` (`left`, `center`, `right`),
+`vertical_align` (`bottom`, `center`, `top`), and `tag` (a custom string or
+`false`). Global controls include `tags`, `tag_size`, `tag_weight`,
+`tag_offset_x`, `tag_offset_y`, `font_family`, `column_gap`, `row_gap`, and
+per-edge `margin_left`, `margin_right`, `margin_top`, and `margin_bottom`.
+Inputs and output must be PDF files so source vector marks, text, and fonts are
+preserved.
 
 ## Producing a suite
 
@@ -411,6 +478,7 @@ projection, interpretation, and output definitions.
 
 | Workflow | Packaged module | Result |
 |---|---|---|
+| `figure-compositor` | `workflows.compositor` | Vector-preserving multi-figure PDF composition |
 | `build-crosswalk` | `workflows.setup.crosswalk` | Block-to-precinct crosswalk |
 | `vote-comparison` | `workflows.standard.vote_comparison` | Ordered vote-share comparison |
 | `vote-comparison-adjusted` | `workflows.standard.vote_comparison_adjusted` | Ordered vote-share comparison |

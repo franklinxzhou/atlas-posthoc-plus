@@ -67,6 +67,16 @@ def check_workflow(config: ProjectConfig, spec: WorkflowSpec) -> list[Check]:
         checks.append(
             Check(False, "workflow module", f"{type(exc).__name__}: {exc}")
         )
+        module = None
+
+    if module is not None:
+        preflight_paths = getattr(module, "preflight_paths", None)
+        if callable(preflight_paths):
+            try:
+                for key, path in preflight_paths(config):
+                    checks.append(Check(path.exists(), str(key), str(path)))
+            except ConfigError as exc:
+                checks.append(Check(False, "workflow configuration", str(exc)))
 
     for key, path in _input_paths(config, spec):
         checks.append(Check(path.exists(), key, str(path)))

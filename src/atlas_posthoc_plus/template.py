@@ -101,4 +101,36 @@ bins = 35
 include_other_ensemble = true
 reuse_official_summary = true
 reuse_public_summary = true
+
+# Reusable PDF composition example. Uncomment after generating the source
+# workflows in paper mode. Each figure path is relative to that panel's source
+# configuration project.root.
+#
+# [workflow.figure-compositor]
+# design = '''
+# AAB
+# #CB
+# '''
+# widths = [1, 1, 0.85]
+# heights = [1, 1]
+# width = 10
+# height = 6.5
+#
+# [[workflow.figure-compositor.panels]]
+# id = "A"
+# workflow = "polsby-histogram"
+# config = "configs/baseline.toml"
+# figure = "outputs/polsby/polsby_histogram.pdf"
+#
+# [[workflow.figure-compositor.panels]]
+# id = "B"
+# workflow = "responsiveness"
+# config = "configs/baseline.toml"
+# figure = "outputs/responsiveness/responsiveness.pdf"
+#
+# [[workflow.figure-compositor.panels]]
+# id = "C"
+# workflow = "municipal-tradeoff"
+# config = "configs/place.toml"
+# figure = "outputs/place/municipal/tradeoff.pdf"
 """

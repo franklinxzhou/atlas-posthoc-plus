@@ -37,6 +37,7 @@ class WorkflowSpec:
     bindings: tuple[Binding, ...]
     legacy: bool = False
     required_municipality_mode: Literal["COUSUB", "PLACE"] | None = None
+    config_flag: str | None = None
 
     def build_args(self, config: ProjectConfig) -> list[str]:
         if self.required_municipality_mode is not None:
@@ -60,6 +61,8 @@ class WorkflowSpec:
                 )
 
         args: list[str] = []
+        if self.config_flag is not None:
+            args.extend((self.config_flag, str(config.path)))
         for binding in self.bindings:
             value = config.get(binding.key)
             if value is None:
@@ -161,6 +164,24 @@ WORKFLOWS: dict[str, WorkflowSpec] = {}
 def _register(spec: WorkflowSpec) -> None:
     WORKFLOWS[spec.name] = spec
 
+
+_register(
+    WorkflowSpec(
+        "figure-compositor",
+        "atlas_posthoc_plus.workflows.compositor",
+        "figures",
+        "Compose existing workflow PDFs on a publication-quality canvas.",
+        (
+            Binding(
+                "--output",
+                "outputs.figure_compositor",
+                "path",
+                default=OutputDefault("figures/composite.pdf"),
+            ),
+        ),
+        config_flag="--config",
+    )
+)
 
 _register(
     WorkflowSpec(
