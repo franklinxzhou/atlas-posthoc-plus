@@ -333,6 +333,15 @@ The configured suites connect multi-stage analyses automatically:
 
 Explicit paths in `[inputs]` override these generated defaults.
 
+For `municipal-tradeoff-public`, sampled plans can be pooled into one visual
+series so the plot does not reveal which chain produced each point:
+
+```toml
+[workflow.municipal-tradeoff-public]
+pool_chains = true
+ensemble_label = "Place-5 ensemble"
+```
+
 ## Polsby-Popper histogram
 
 To plot an ensemble compactness histogram from `atlas-posthoc` output:

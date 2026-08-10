@@ -207,6 +207,10 @@ files = ["chain.jsonl"]
 block_metadata = "blocks.gpkg"
 public_plan_dir = "public-plans"
 
+[workflow.municipal-tradeoff-public]
+pool_chains = true
+ensemble_label = "Place-5 ensemble"
+
 [plans]
 enacted = "enacted.xlsx"
 overturned = "overturned.xlsx"
@@ -240,6 +244,8 @@ root = "results"
 
     public = prepare_workflow(WORKFLOWS["municipal-tradeoff-public"], config)
     assert public.argv[public.argv.index("--traces-json") + 1] == traces_json
+    assert "--pool-chains" in public.argv
+    assert public.argv[public.argv.index("--ensemble-label") + 1] == "Place-5 ensemble"
 
     partisanship = prepare_workflow(
         WORKFLOWS["municipal-place-partisanship"], config

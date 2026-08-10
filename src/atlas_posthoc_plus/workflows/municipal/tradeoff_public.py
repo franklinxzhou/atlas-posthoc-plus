@@ -794,6 +794,8 @@ def plot_tradeoff(
     use_percent_axis: bool,
     label_references: bool,
     label_public: bool,
+    pool_chains: bool = False,
+    ensemble_label: str = "Sampled plans",
 ) -> None:
     if not isinstance(traces, list) or not traces:
         raise ValueError("traces JSON must be a nonempty list.")
@@ -824,24 +826,42 @@ def plot_tradeoff(
     fig, ax = plt.subplots(figsize=(12.0, 7.5))
 
     # Ensemble cloud.
-    for item in traces:
-        chain_id = str(item.get("chain_id", "chain"))
-        x = np.asarray(item["n_cut_municipalities"], dtype=float)
-        y = np.asarray(item[y_key], dtype=float)
-
+    if pool_chains:
+        x = np.concatenate(
+            [np.asarray(item["n_cut_municipalities"], dtype=float) for item in traces]
+        )
+        y = np.concatenate([np.asarray(item[y_key], dtype=float) for item in traces])
         mask = np.isfinite(x) & np.isfinite(y)
-
         ax.scatter(
             x[mask],
             y[mask],
             s=34,
             facecolors="none",
-            edgecolors=chain_colors.get(chain_id, "gray"),
+            edgecolors=DEFAULT_CHAIN_COLORS[0],
             linewidths=1.4,
             alpha=0.38,
-            label=chain_id,
+            label=ensemble_label,
             zorder=1,
         )
+    else:
+        for item in traces:
+            chain_id = str(item.get("chain_id", "chain"))
+            x = np.asarray(item["n_cut_municipalities"], dtype=float)
+            y = np.asarray(item[y_key], dtype=float)
+
+            mask = np.isfinite(x) & np.isfinite(y)
+
+            ax.scatter(
+                x[mask],
+                y[mask],
+                s=34,
+                facecolors="none",
+                edgecolors=chain_colors.get(chain_id, "gray"),
+                linewidths=1.4,
+                alpha=0.38,
+                label=chain_id,
+                zorder=1,
+            )
 
     # Public citizen submissions: blue crosses.
     if public_summaries:
@@ -944,21 +964,39 @@ def plot_tradeoff(
     ax.spines["right"].set_visible(False)
 
     # Separate chain, public, and official legends.
-    chain_handles = [
-        Line2D(
-            [0],
-            [0],
-            marker="o",
-            linestyle="None",
-            markerfacecolor="none",
-            markeredgecolor=color,
-            markeredgewidth=1.5,
-            markersize=8,
-            label=chain_id,
-            alpha=0.8,
-        )
-        for chain_id, color in chain_colors.items()
-    ]
+    if pool_chains:
+        chain_handles = [
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                linestyle="None",
+                markerfacecolor="none",
+                markeredgecolor=DEFAULT_CHAIN_COLORS[0],
+                markeredgewidth=1.5,
+                markersize=8,
+                label=ensemble_label,
+                alpha=0.8,
+            )
+        ]
+        chain_legend_title = "Ensemble"
+    else:
+        chain_handles = [
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                linestyle="None",
+                markerfacecolor="none",
+                markeredgecolor=color,
+                markeredgewidth=1.5,
+                markersize=8,
+                label=chain_id,
+                alpha=0.8,
+            )
+            for chain_id, color in chain_colors.items()
+        ]
+        chain_legend_title = "Chains"
 
     public_handles = []
     if public_summaries:
@@ -993,7 +1031,7 @@ def plot_tradeoff(
 
     legend1 = ax.legend(
         handles=chain_handles,
-        title="Chains",
+        title=chain_legend_title,
         loc="upper right",
         frameon=True,
         fontsize=11,
@@ -1059,6 +1097,19 @@ def parse_args() -> argparse.Namespace:
         "--no-labels",
         action="store_true",
         help="Use large markers and legend only; do not annotate reference plans.",
+    )
+    p.add_argument(
+        "--pool-chains",
+        action="store_true",
+        help=(
+            "Plot all sampled plans with one style and one legend entry instead "
+            "of identifying the chain that produced each point."
+        ),
+    )
+    p.add_argument(
+        "--ensemble-label",
+        default="Sampled plans",
+        help="Legend label for sampled plans when --pool-chains is enabled.",
     )
 
     # Public plan options.
@@ -1170,6 +1221,8 @@ def main() -> None:
         use_percent_axis=use_percent_axis,
         label_references=not args.no_labels,
         label_public=args.label_public,
+        pool_chains=args.pool_chains,
+        ensemble_label=args.ensemble_label,
     )
 
 

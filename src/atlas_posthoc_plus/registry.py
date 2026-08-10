@@ -557,6 +557,15 @@ _register(
                 default=MunicipalityOutputDefault("municipal/municipal-tradeoff-public.png"),
             ),
             Binding(
+                "--pool-chains",
+                "workflow.municipal-tradeoff-public.pool_chains",
+                "flag",
+            ),
+            Binding(
+                "--ensemble-label",
+                "workflow.municipal-tradeoff-public.ensemble_label",
+            ),
+            Binding(
                 "--public-summary-json",
                 "outputs.public_summary_json",
                 "path",
