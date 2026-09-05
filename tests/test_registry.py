@@ -34,10 +34,15 @@ def test_place_partisanship_workflow_is_in_municipal_suite() -> None:
 
 
 def test_city_partisan_context_workflow_is_in_municipal_suite() -> None:
-    assert WORKFLOWS["municipal-city-partisan-context"].module == (
+    workflow = WORKFLOWS["municipal-city-partisan-context"]
+    assert workflow.module == (
         "atlas_posthoc_plus.workflows.municipal.city_partisan_context"
     )
     assert "municipal-city-partisan-context" in SUITES["municipal"]
+    output_mode = next(
+        binding for binding in workflow.bindings if binding.flag == "--output-mode"
+    )
+    assert output_mode.default == "duo"
 
 
 def test_place_partisanship_workflow_requires_place_mode(tmp_path: Path) -> None:
@@ -211,6 +216,9 @@ public_plan_dir = "public-plans"
 pool_chains = true
 ensemble_label = "Place-5 ensemble"
 
+[workflow.municipal-city-partisan-context]
+output_mode = "both"
+
 [plans]
 enacted = "enacted.xlsx"
 overturned = "overturned.xlsx"
@@ -261,6 +269,7 @@ root = "results"
     assert context.argv[context.argv.index("--block-metadata") + 1] == str(
         (project / "blocks.gpkg").resolve()
     )
+    assert context.argv[context.argv.index("--output-mode") + 1] == "both"
 
     namespace_root = str((project / "results/place").resolve())
     for name in (

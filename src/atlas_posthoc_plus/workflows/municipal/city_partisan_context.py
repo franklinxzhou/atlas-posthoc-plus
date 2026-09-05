@@ -67,6 +67,8 @@ PLAN_LINESTYLES = {
     "Remedial ('22)": ":",
 }
 
+OUTPUT_MODES = ("duo", "signed", "both")
+
 
 @dataclass(frozen=True)
 class CityContext:
@@ -659,6 +661,96 @@ def summarize_context_metrics(
     )
 
 
+def _official_plan_handles(official: pd.DataFrame) -> list[Line2D]:
+    return [
+        Line2D(
+            [0],
+            [0],
+            color=PLAN_COLORS.get(row.official_plan, "#555555"),
+            linestyle=PLAN_LINESTYLES.get(row.official_plan, "-"),
+            lw=1.8,
+            label=row.official_plan,
+        )
+        for row in official.itertuples(index=False)
+    ]
+
+
+def _plot_official_plan_lines(
+    axis: Any,
+    official: pd.DataFrame,
+    value_column: str,
+) -> list[Line2D]:
+    for row in official.itertuples(index=False):
+        label = row.official_plan
+        axis.axvline(
+            getattr(row, value_column),
+            color=PLAN_COLORS.get(label, "#555555"),
+            linestyle=PLAN_LINESTYLES.get(label, "-"),
+            lw=1.8,
+            ymax=0.84,
+        )
+    return _official_plan_handles(official)
+
+
+def _plot_signed_context_panel(
+    axis: Any,
+    ensemble_direction: np.ndarray,
+    official: pd.DataFrame,
+    *,
+    bins: int,
+    ensemble_weights: np.ndarray,
+    show_ylabel: bool,
+    show_legend: bool,
+) -> None:
+    """Draw the shared signed-displacement panel used by both figure forms."""
+    direction_limit = max(
+        float(np.max(np.abs(ensemble_direction))),
+        float(official["signed_displacement"].abs().max()),
+        0.01,
+    ) * 1.08
+    direction_edges = np.linspace(-direction_limit, direction_limit, bins + 1)
+    axis.axvspan(-direction_limit, 0, color="#E69F00", alpha=0.08, lw=0)
+    axis.axvspan(0, direction_limit, color="#0072B2", alpha=0.08, lw=0)
+    axis.hist(
+        ensemble_direction,
+        bins=direction_edges,
+        weights=ensemble_weights,
+        color="#B8C4CE",
+        edgecolor="white",
+        linewidth=0.5,
+    )
+    axis.axvline(0, color="#555555", lw=0.8)
+    axis.set_xlim(-direction_limit, direction_limit)
+    axis.set_xlabel("Signed shift from ensemble mean district context")
+    if show_ylabel:
+        axis.set_ylabel("Fraction of compliant ensemble plans")
+    axis.xaxis.set_major_formatter(PercentFormatter(1.0, decimals=0))
+    axis.yaxis.set_major_formatter(PercentFormatter(1.0, decimals=0))
+    axis.text(
+        0.02,
+        0.96,
+        r"$\leftarrow$ more Republican" "\n(cracking)",
+        transform=axis.transAxes,
+        ha="left",
+        va="top",
+        fontsize=8,
+        color="#8A5A00",
+    )
+    axis.text(
+        0.98,
+        0.96,
+        "more Democratic " r"$\rightarrow$" "\n(packing)",
+        transform=axis.transAxes,
+        ha="right",
+        va="top",
+        fontsize=8,
+        color="#005A8D",
+    )
+    handles = _plot_official_plan_lines(axis, official, "signed_displacement")
+    if show_legend:
+        axis.legend(handles=handles, loc="center right")
+
+
 def plot_city_context_duo(
     city: CityContext,
     ensemble: pd.DataFrame,
@@ -690,76 +782,17 @@ def plot_city_context_duo(
     left.yaxis.set_major_formatter(PercentFormatter(1.0, decimals=0))
     left.margins(x=0.04)
 
-    direction_limit = max(
-        float(np.max(np.abs(ens_direction))),
-        float(official["signed_displacement"].abs().max()),
-        0.01,
-    ) * 1.08
-    direction_edges = np.linspace(-direction_limit, direction_limit, bins + 1)
-    right.axvspan(-direction_limit, 0, color="#E69F00", alpha=0.08, lw=0)
-    right.axvspan(0, direction_limit, color="#0072B2", alpha=0.08, lw=0)
-    right.hist(
+    _plot_signed_context_panel(
+        right,
         ens_direction,
-        bins=direction_edges,
-        weights=weights,
-        color="#B8C4CE",
-        edgecolor="white",
-        linewidth=0.5,
-    )
-    right.axvline(0, color="#555555", lw=0.8)
-    right.set_xlim(-direction_limit, direction_limit)
-    right.set_xlabel("Signed shift from ensemble mean district context")
-    right.xaxis.set_major_formatter(PercentFormatter(1.0, decimals=0))
-    right.yaxis.set_major_formatter(PercentFormatter(1.0, decimals=0))
-    right.text(
-        0.02,
-        0.96,
-        "← more Republican\n(cracking)",
-        transform=right.transAxes,
-        ha="left",
-        va="top",
-        fontsize=8,
-        color="#8A5A00",
-    )
-    right.text(
-        0.98,
-        0.96,
-        "more Democratic →\n(packing)",
-        transform=right.transAxes,
-        ha="right",
-        va="top",
-        fontsize=8,
-        color="#005A8D",
+        official,
+        bins=bins,
+        ensemble_weights=weights,
+        show_ylabel=False,
+        show_legend=False,
     )
 
-    handles: list[Line2D] = []
-    for row in official.itertuples(index=False):
-        color = PLAN_COLORS.get(row.official_plan, "#555555")
-        linestyle = PLAN_LINESTYLES.get(row.official_plan, "-")
-        left.axvline(
-            row.normalized_distance,
-            color=color,
-            linestyle=linestyle,
-            lw=1.8,
-            ymax=0.84,
-        )
-        right.axvline(
-            row.signed_displacement,
-            color=color,
-            linestyle=linestyle,
-            lw=1.8,
-            ymax=0.84,
-        )
-        handles.append(
-            Line2D(
-                [0],
-                [0],
-                color=color,
-                linestyle=linestyle,
-                lw=1.8,
-                label=row.official_plan,
-            )
-        )
+    handles = _plot_official_plan_lines(left, official, "normalized_distance")
     left.legend(handles=handles, loc="upper right")
 
     figure.suptitle(
@@ -772,6 +805,81 @@ def plot_city_context_duo(
     output = save_figure(figure, output)
     plt.close(figure)
     return output
+
+
+def plot_city_context_signed(
+    city: CityContext,
+    ensemble: pd.DataFrame,
+    official: pd.DataFrame,
+    output: str | Path,
+    *,
+    bins: int = 35,
+) -> Path:
+    """Plot the signed partisan-context shift as a standalone city figure."""
+    apply_figure_style()
+    ensemble_direction = ensemble["signed_displacement"].to_numpy(float)
+    ensemble_weights = np.full(len(ensemble_direction), 1 / len(ensemble_direction))
+
+    figure, axis = plt.subplots(figsize=(5.0, 3.8))
+    _plot_signed_context_panel(
+        axis,
+        ensemble_direction,
+        official.copy(),
+        bins=bins,
+        ensemble_weights=ensemble_weights,
+        show_ylabel=True,
+        show_legend=True,
+    )
+    figure.text(
+        0.15,
+        0.97,
+        f"{city.place_name}: signed partisan district-context shift",
+        ha="left",
+        va="top",
+        fontsize=10,
+    )
+    figure.subplots_adjust(top=0.88, bottom=0.16, left=0.15, right=0.97)
+    output = Path(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output = save_figure(figure, output)
+    plt.close(figure)
+    return output
+
+
+def plot_city_context_outputs(
+    city: CityContext,
+    ensemble: pd.DataFrame,
+    official: pd.DataFrame,
+    output_dir: str | Path,
+    *,
+    output_mode: str = "duo",
+    bins: int = 35,
+) -> dict[str, Path]:
+    """Write the configured city-context figure form or forms."""
+    if output_mode not in OUTPUT_MODES:
+        raise ValueError(
+            f"output_mode must be one of {', '.join(OUTPUT_MODES)}, found {output_mode!r}"
+        )
+    output_dir = Path(output_dir)
+    stem = _slug(city.place_name)
+    outputs: dict[str, Path] = {}
+    if output_mode in {"duo", "both"}:
+        outputs["duo"] = plot_city_context_duo(
+            city,
+            ensemble,
+            official,
+            output_dir / f"{stem}-city-partisan-context.png",
+            bins=bins,
+        )
+    if output_mode in {"signed", "both"}:
+        outputs["signed"] = plot_city_context_signed(
+            city,
+            ensemble,
+            official,
+            output_dir / f"{stem}-city-partisan-context-signed.png",
+            bins=bins,
+        )
+    return outputs
 
 
 def parse_args() -> argparse.Namespace:
@@ -807,6 +915,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--block-pop-col", default=None)
     parser.add_argument("--place-name-column", default=None)
     parser.add_argument("--bins", type=int, default=35)
+    parser.add_argument(
+        "--output-mode",
+        choices=OUTPUT_MODES,
+        default="duo",
+        help="Write the two-panel figure, standalone signed figure, or both",
+    )
     add_municipality_arguments(parser)
     return parser.parse_args()
 
@@ -896,11 +1010,16 @@ def main() -> None:
     for city in contexts:
         city_ensemble = ensemble[ensemble["municipality"] == city.municipality]
         city_official = official[official["municipality"] == city.municipality]
-        output = output_dir / f"{_slug(city.place_name)}-city-partisan-context.png"
-        plot_city_context_duo(
-            city, city_ensemble, city_official, output, bins=args.bins
+        outputs = plot_city_context_outputs(
+            city,
+            city_ensemble,
+            city_official,
+            output_dir,
+            output_mode=args.output_mode,
+            bins=args.bins,
         )
-        print(f"Wrote {output}")
+        for output in outputs.values():
+            print(f"Wrote {output}")
     print(f"Wrote {ensemble_path}")
     print(f"Wrote {official_path}")
     print(f"Wrote {centroid_path}")

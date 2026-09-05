@@ -59,9 +59,11 @@ $$
 A positive value means that city residents are assigned, on average, to more
 Democratic districts than in the ensemble; the figure labels this direction
 `packing`. A negative value means that they are assigned to more Republican
-districts; the figure labels this direction `cracking`. The right histogram
+districts; the figure labels this direction `cracking`. The signed histogram
 shows $S_p$ for the compliant ensemble plans and marks each official plan's
-value.
+value. It appears as the right panel of the combined figure and can also be
+written as a standalone, city-titled figure with its own y-axis label and
+official-plan legend.
 
 These labels describe the direction of the result. They do not by themselves
 establish intent, a general mechanism for treating municipalities, or the
@@ -145,6 +147,9 @@ The workflow writes the following files under
 
 - `<city>-city-partisan-context.png`: the two ensemble histograms with official
   plan reference lines;
+- `<city>-city-partisan-context-signed.png`: the standalone signed-shift
+  histogram with symmetric cracking/packing directions and official-plan
+  reference lines;
 - `city-partisan-context-ensemble.csv`: both statistics for every retained
   ensemble plan and city;
 - `city-partisan-context-official.csv`: official statistics, percentiles, tail
@@ -154,3 +159,16 @@ The workflow writes the following files under
 - `city-partisan-context-ensemble-compliance.csv`: chain-level compliance
   accounting; and
 - `municipal-geography.json`: the graph and Place-layer provenance.
+
+Choose which figure files are written with:
+
+```toml
+[workflow.municipal-city-partisan-context]
+output_mode = "duo" # "duo", "signed", or "both"
+```
+
+`"duo"` is the default and preserves the original behavior. `"signed"` writes
+only the standalone signed-shift figure, while `"both"` writes both figure
+forms. In paper mode, the same stems are written as vector PDFs through the
+package's normal figure-saving convention. The CSV and provenance outputs are
+written in every mode.

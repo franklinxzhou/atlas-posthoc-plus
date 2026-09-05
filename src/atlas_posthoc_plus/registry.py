@@ -818,6 +818,11 @@ _register(
                 "workflow.municipal-city-partisan-context.bins",
                 default=35,
             ),
+            Binding(
+                "--output-mode",
+                "workflow.municipal-city-partisan-context.output_mode",
+                default="duo",
+            ),
         ),
         required_municipality_mode="PLACE",
     )

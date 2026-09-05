@@ -10,6 +10,8 @@ from atlas_posthoc_plus.workflows.municipal.city_partisan_context import (
     build_city_contexts,
     normalized_context_metrics,
     plot_city_context_duo,
+    plot_city_context_outputs,
+    plot_city_context_signed,
     read_block_context_rows,
     summarize_context_metrics,
 )
@@ -119,7 +121,9 @@ def test_block_rows_resolve_components_of_merged_graph_units(tmp_path: Path) -> 
     assert city_rows["city_population"].sum() == pytest.approx(50)
 
 
-def test_summary_and_duo_plot_include_official_comparisons(tmp_path: Path) -> None:
+def _example_context_results() -> tuple[
+    CityContext, pd.DataFrame, pd.DataFrame, pd.DataFrame
+]:
     city = CityContext(
         municipality="16000",
         place_name="Cleveland",
@@ -154,6 +158,11 @@ def test_summary_and_duo_plot_include_official_comparisons(tmp_path: Path) -> No
     ensemble, official, centroids = summarize_context_metrics(
         [city], matrices, plans, official_vectors
     )
+    return city, ensemble, official, centroids
+
+
+def test_summary_and_duo_plot_include_official_comparisons(tmp_path: Path) -> None:
+    city, ensemble, official, centroids = _example_context_results()
     output = plot_city_context_duo(
         city,
         ensemble,
@@ -169,3 +178,55 @@ def test_summary_and_duo_plot_include_official_comparisons(tmp_path: Path) -> No
         "cracking",
     }
     assert centroids["city_population_weight"].sum() == pytest.approx(1)
+
+
+def test_standalone_signed_plot_is_created(tmp_path: Path) -> None:
+    city, ensemble, official, _ = _example_context_results()
+
+    output = plot_city_context_signed(
+        city,
+        ensemble,
+        official,
+        tmp_path / "cleveland-city-partisan-context-signed.png",
+        bins=5,
+    )
+
+    assert output == tmp_path / "cleveland-city-partisan-context-signed.png"
+    assert output.is_file()
+    assert output.stat().st_size > 0
+
+
+@pytest.mark.parametrize(
+    ("output_mode", "expected_names"),
+    [
+        ("duo", {"cleveland-city-partisan-context.png"}),
+        ("signed", {"cleveland-city-partisan-context-signed.png"}),
+        (
+            "both",
+            {
+                "cleveland-city-partisan-context.png",
+                "cleveland-city-partisan-context-signed.png",
+            },
+        ),
+    ],
+)
+def test_city_context_output_modes_write_expected_figures(
+    tmp_path: Path,
+    output_mode: str,
+    expected_names: set[str],
+) -> None:
+    city, ensemble, official, _ = _example_context_results()
+    output_dir = tmp_path / output_mode
+
+    outputs = plot_city_context_outputs(
+        city,
+        ensemble,
+        official,
+        output_dir,
+        output_mode=output_mode,
+        bins=5,
+    )
+
+    assert {path.name for path in outputs.values()} == expected_names
+    assert {path.name for path in output_dir.iterdir()} == expected_names
+    assert all(path.is_file() for path in outputs.values())

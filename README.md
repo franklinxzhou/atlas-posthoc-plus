@@ -472,13 +472,20 @@ it with the same PLACE graph and chains:
 [workflow.municipal-city-partisan-context]
 cities = ["Cleveland", "Columbus", "Cincinnati", "Toledo", "Akron", "Dayton"]
 bins = 35
+output_mode = "both"
 ```
 
 ```bash
 atlas-posthoc-plus run municipal-city-partisan-context
 ```
 
-It writes one two-panel figure per city plus CSV audit tables. See
+`output_mode` accepts `"duo"` (the backward-compatible default), `"signed"`, or
+`"both"`. The duo output is `<city>-city-partisan-context.png`; the standalone
+signed-shift output is `<city>-city-partisan-context-signed.png`. Paper mode
+uses the same stems with vector PDF output. Both forms use the same signed-panel
+renderer, including the population-weighted ensemble statistic, cracking and
+packing shading, and official-plan reference lines. The workflow also writes
+CSV audit tables. See
 [City-level district partisanship methodology](docs/municipal-city-partisan-context.md)
 for the formulas, population weighting, vote allocation, official-plan
 projection, interpretation, and output definitions.
