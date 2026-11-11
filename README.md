@@ -195,6 +195,28 @@ Run it:
 atlas-posthoc-plus run vote-comparison-adjusted
 ```
 
+To hide which chain produced each box and show one pooled ensemble instead:
+
+```toml
+[workflow.vote-comparison-adjusted]
+pool_chains = true
+ensemble_label = "Place-5 ensemble"
+overlay_public_plans = true
+```
+
+The pooling affects only the figure; the per-chain compliance summary and
+`compliant_ensemble_ordered_vote_vectors.csv` retain their chain IDs. With
+`overlay_public_plans = true`, every valid CSV under `inputs.public_plan_dir`
+is evaluated using the same election and drawn as small red dots at its ordered
+district ranks.
+
+For a one-off pooled PDF without changing the TOML:
+
+```bash
+atlas-posthoc-plus --paper-mode run vote-comparison-adjusted -- \
+  --pool-chains --ensemble-label "Place-5 ensemble"
+```
+
 Pass a one-off override after `--`:
 
 ```bash
@@ -329,9 +351,73 @@ The configured suites connect multi-stage analyses automatically:
   summary CSV. If `inputs.public_plan_dir`, `inputs.graph_json`, and
   `inputs.crosswalk_csv` are configured, it also computes and caches public-plan
   Polsby-Popper scores.
-- `responsiveness` creates the CSV files used by `responsiveness-zoom`.
+- `responsiveness` creates the CSV files used by `responsiveness-zoom`. To add
+  public plans to the zoomed figure, set
+  `workflow.responsiveness.overlay_public_plans = true`. The upstream workflow
+  then creates `responsiveness/oh_responsiveness_public_plan_seats.csv`. The
+  zoom workflow reads it and writes two separate overview-plus-zoom source figures:
+  the existing `responsiveness/responsiveness-zoom.png` ensemble figure and a
+  companion `responsiveness/responsiveness-zoom-public-plans.png` public-plan
+  figure. Public plans with the same election and integer Democratic seat
+  count are collapsed into one constant-size muted tile; exact counts are
+  labelled inside the tiles in the zoom axes (the compact overview suppresses
+  those labels). The public legend identifies a “Submitted-plan outcome” tile
+  and notes that zoom labels give the number of submitted plans. The seat
+  coordinate is never jittered or smoothed. Set
+  `outputs.responsiveness_public_zoom` to choose another public figure path.
+
+For a clearer public-plan comparison, `vote-comparison-adjusted` also writes
+`vote-comparison-adjusted/oh_public_plans_ordered_vote_shares.png` when
+`workflow.vote-comparison-adjusted.overlay_public_plans = true`. This figure
+uses the same election as the vote comparison (2020 presidential by default).
+Districts are sorted within each plan from most Republican to most Democratic.
+Each box summarizes the submitted plans at that rank: the box spans the middle
+50%, the line marks the median, and whiskers span the full range. The three
+official plans are overlaid with distinct colors, line styles, and marker
+shapes; they do not contribute to the boxes. A dashed line marks the 50% winning
+threshold. Set `outputs.public_vote_comparison` to choose another output path.
+
+The checked-in `figure-compositor` configuration combines the paper-mode PDF
+ensemble responsiveness figure as panel `(a)` with this public-plan ordered
+vote-share figure as panel `(b)` without rasterizing them, and writes
+`responsiveness/responsiveness-zoom-composite.pdf`:
+
+```bash
+atlas-posthoc-plus --paper-mode run responsiveness-zoom
+atlas-posthoc-plus --paper-mode run vote-comparison-adjusted
+atlas-posthoc-plus doctor figure-compositor
+atlas-posthoc-plus run figure-compositor
+```
+
+To redraw only the public boxplot from saved ordered vote vectors:
+
+```bash
+python -m atlas_posthoc_plus.workflows.elections.public_vote_comparison \
+  --ordered-votes outputs/vote-comparison-adjusted/external_plan_ordered_vote_vectors.csv \
+  --output outputs/vote-comparison-adjusted/oh_public_plans_ordered_vote_shares.png
+```
+
+These saved vectors must include the public plans; generate them once with the
+public overlay enabled. The boxes describe submissions, not a neutral ensemble
+or a probability of drawing a plan.
 
 Explicit paths in `[inputs]` override these generated defaults.
+
+The public-plan overlays for both vote comparison and responsiveness can be
+enabled together with:
+
+```toml
+[workflow.vote-comparison-adjusted]
+overlay_public_plans = true
+
+[workflow.responsiveness]
+overlay_public_plans = true
+```
+
+For responsiveness, run `responsiveness` before `responsiveness-zoom` at least
+once after enabling the option so the public-plan seat-count CSV exists. The
+public figure's zoom labels give the number of submitted plans; these
+descriptive counts are not probabilities or densities.
 
 For `municipal-tradeoff-public`, sampled plans can be pooled into one visual
 series so the plot does not reveal which chain produced each point:
@@ -490,6 +576,20 @@ CSV audit tables. See
 for the formulas, population weighting, vote allocation, official-plan
 projection, interpretation, and output definitions.
 
+The `regional-african-american-cvap` workflow writes separate CUA and MSA
+district-level forest plots. Each metro has one row per official plan, and the
+row states `k`, its number of substantive touching districts. Numbered official
+symbols are the actual districts, ranked within that plan and metro from lower
+to higher African American CVAP location quotient. The two aligned columns show
+regional concentration and whole-district African American CVAP share. Each
+navy interval is computed from ensemble plans with the same `k` and the same
+rank as its official symbol; thin and thick segments show the middle 90% and
+50%. By default, intersections containing less than 1% of a region's CVAP
+remain in the audit CSV but do not enter the figure;
+configure `workflow.regional-african-american-cvap.minimum_region_cvap_share`
+to change that threshold. See
+[the methodological note](docs/regional-african-american-standardization.md).
+
 ## Workflow inventory
 
 | Workflow | Packaged module | Result |
@@ -506,6 +606,7 @@ projection, interpretation, and output definitions.
 | `polsby-trace` | `workflows.compactness.polsby_trace` | Compactness trace with references |
 | `polsby-histogram` | `workflows.compactness.polsby_histogram` | Compactness histogram with public/official overlays |
 | `ranked-vote-cvap` | `workflows.demographics.ranked_vote_cvap` | Vote/CVAP ranked comparison |
+| `regional-african-american-cvap` | `workflows.demographics.regional_black_cvap` | District-level CUA/MSA African American-CVAP location quotients |
 | `responsiveness` | `workflows.elections.responsiveness` | Multi-election responsiveness |
 | `responsiveness-zoom` | `workflows.elections.responsiveness_zoom` | Zoomed responsiveness panels |
 | `municipal-histograms` | `workflows.municipal.histograms` | Pooled municipal histograms |

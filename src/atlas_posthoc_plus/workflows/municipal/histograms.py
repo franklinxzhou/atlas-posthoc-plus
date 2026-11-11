@@ -52,6 +52,7 @@ from atlas_posthoc_plus.workflows.municipal.geography import (
     MunicipalGeography,
     add_municipality_arguments,
     geography_from_args,
+    municipality_name_for_traces,
 )
 
 
@@ -439,6 +440,7 @@ def plot_histograms(
     output_path: str | Path,
 ) -> None:
     cut_values = pooled_values(traces, metric="n_cut_municipalities")
+    municipality_name = municipality_name_for_traces(traces)
     ousted_metric = "ousted_population_share" if ousted_scale == "share" else "ousted_population"
     ousted_values = pooled_values(traces, metric=ousted_metric)
 
@@ -456,7 +458,7 @@ def plot_histograms(
     bins_cut = np.arange(cut_min - 0.5, cut_max + 1.5, 1.0)
 
     axes[0].hist(cut_values, bins=bins_cut, edgecolor="black", alpha=0.75)
-    axes[0].set_xlabel("Number of cut municipalities")
+    axes[0].set_xlabel(f"Number of cut {municipality_name}s")
     axes[0].set_ylabel("Count")
     axes[0].set_title("Pooled ensemble distribution")
 
@@ -465,10 +467,10 @@ def plot_histograms(
     axes[1].set_ylabel("Count")
     axes[1].set_title("Pooled ensemble distribution")
     if ousted_scale == "share":
-        axes[1].set_xlabel("Ousted municipal population share")
+        axes[1].set_xlabel(f"Ousted {municipality_name} population share")
         axes[1].ticklabel_format(axis="x", style="plain")
     else:
-        axes[1].set_xlabel("Ousted municipal population")
+        axes[1].set_xlabel(f"Ousted {municipality_name} population")
 
     handles = []
     for label, summary in reference_summaries.items():

@@ -446,6 +446,22 @@ def main() -> None:
         invalid_policy="nan",
     )
 
+    for chain_file, trace in zip(args.chain_files, traces):
+        records = iter_sweep_records(chain_file) if configured_sweep() is not None else iter_records(chain_file)
+        recorded_steps = []
+        for index, record in enumerate(records):
+            if index % args.thin_step:
+                continue
+            if len(recorded_steps) == trace.n_maps:
+                break
+            name = str(record.name)
+            if not name.startswith("step") or not name[4:].isdigit():
+                raise ValueError(f"Missing recorded proposal time: {name}")
+            recorded_steps.append(int(name[4:]))
+        if len(recorded_steps) != trace.n_maps:
+            raise ValueError("Recorded trace time count disagrees with map count")
+        trace.proposals = recorded_steps
+
     for tr in traces:
         vals = get_trace_values(tr, args.metric)
         print(

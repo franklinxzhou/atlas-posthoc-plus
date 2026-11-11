@@ -25,6 +25,25 @@ from atlas_posthoc.observables.municipal_splits import (
 
 MunicipalityMode = Literal["COUSUB", "PLACE"]
 
+_MUNICIPALITY_NAMES = {"COUSUB": "county subdivision", "PLACE": "place"}
+
+
+def municipality_name_for_traces(traces: Iterable[Mapping[str, Any] | Any]) -> str:
+    """Name the trace geography, retaining COUSUB for legacy trace files."""
+    modes = {
+        str(
+            trace.get("geography_mode", "COUSUB")
+            if isinstance(trace, Mapping)
+            else getattr(trace, "geography_mode", "COUSUB")
+        ).upper()
+        for trace in traces
+    }
+    if modes - _MUNICIPALITY_NAMES.keys():
+        raise ValueError(f"Unknown municipal trace geography modes: {sorted(modes)}")
+    if len(modes) > 1:
+        raise ValueError("Cannot label COUSUB and PLACE traces on the same municipal axis")
+    return _MUNICIPALITY_NAMES[next(iter(modes), "COUSUB")]
+
 
 _DATASET_EXTENSIONS = (
     ".gpkg",
@@ -158,7 +177,7 @@ class MunicipalGeography:
 
     @property
     def display_name(self) -> str:
-        return "county subdivision" if self.mode == "COUSUB" else "Place"
+        return _MUNICIPALITY_NAMES[self.mode]
 
     def provenance(self) -> dict[str, Any]:
         graph = None if self.graph_json is None else self.graph_json.resolve()

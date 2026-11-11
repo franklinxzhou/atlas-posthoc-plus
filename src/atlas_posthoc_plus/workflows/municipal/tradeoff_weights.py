@@ -37,6 +37,7 @@ from atlas_posthoc_plus.workflows.municipal.geography import (
     MunicipalGeography,
     add_municipality_arguments,
     geography_from_args,
+    municipality_name_for_traces,
 )
 
 
@@ -1170,7 +1171,7 @@ def plot_tradeoff(
     title: str,
     y_key: str,
     y_label: str,
-    x_label: str = "Number of cut MCDs",
+    x_label: str | None = None,
     use_percent_axis: bool,
     label_references: bool,
     label_public: bool,
@@ -1304,7 +1305,10 @@ def plot_tradeoff(
             )
 
     ax.set_title(title, fontsize=21, pad=14)
-    ax.set_xlabel(x_label, fontsize=16)
+    ax.set_xlabel(
+        x_label if x_label is not None else f"Number of cut {municipality_name_for_traces(traces)}s",
+        fontsize=16,
+    )
     ax.set_ylabel(y_label, fontsize=16)
 
     if use_percent_axis:
@@ -1490,7 +1494,7 @@ def parse_args() -> argparse.Namespace:
         "--y-metric",
         choices=["share", "population"],
         default="share",
-        help="Use ousted MCD population share or raw ousted MCD population on the y-axis.",
+        help="Use ousted municipal population share or raw population on the y-axis.",
     )
     p.add_argument(
         "--max-points-per-chain",
@@ -1710,11 +1714,7 @@ def main() -> None:
         title=args.title,
         y_key=y_key,
         y_label=y_label,
-        x_label=(
-            "Number of cut Places"
-            if geography.mode == "PLACE"
-            else "Number of cut MCDs"
-        ),
+        x_label=f"Number of cut {geography.display_name}s",
         use_percent_axis=use_percent_axis,
         label_references=not args.no_labels,
         label_public=args.label_public,

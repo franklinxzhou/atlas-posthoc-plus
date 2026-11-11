@@ -964,6 +964,12 @@ def main() -> None:
         title=args.title,
         output_path=None,
     )
+    cut_label = f"Number of cut {geography.display_name}s"
+    ousted_label = f"Ousted {geography.display_name} population"
+    if args.ousted_scale == "share":
+        ousted_label += " share"
+    axes[0].set(ylabel=cut_label, title=cut_label)
+    axes[1].set(ylabel=ousted_label, title=ousted_label)
 
     add_reference_lines_to_distribution_panel(
         fig=fig,

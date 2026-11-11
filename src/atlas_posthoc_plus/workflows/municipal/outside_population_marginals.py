@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plot multi-ensemble marginal distributions of ousted MCD population."""
+"""Plot multi-ensemble marginal distributions of ousted municipal population."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from matplotlib.lines import Line2D
 from matplotlib.ticker import PercentFormatter
 import numpy as np
 
+from atlas_posthoc_plus.workflows.municipal.geography import municipality_name_for_traces
 from atlas_posthoc_plus.workflows.municipal.marginal_helpers import (
     REFERENCE_LINE_STYLES,
     CollectionSeries,
@@ -182,7 +183,7 @@ def plot_outside_population_marginals(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Plot marginal distributions of ousted MCD population across municipal "
+            "Plot marginal distributions of ousted municipal population across municipal "
             "trace collections, with official-plan reference lines."
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -220,7 +221,7 @@ def parse_args() -> argparse.Namespace:
         "--y-metric",
         choices=["share", "population"],
         default="share",
-        help="Plot ousted MCD population share or raw population.",
+        help="Plot ousted municipal population share or raw population.",
     )
     parser.add_argument(
         "--include-other-ensemble",
@@ -249,8 +250,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--title",
-        default="Ousted MCD population marginal distributions",
-        help="Plot title.",
+        default=None,
+        help="Plot title (defaults to the trace geography).",
     )
     return parser.parse_args()
 
@@ -258,14 +259,15 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     traces = load_all_traces(args)
+    municipality_name = municipality_name_for_traces(traces)
 
     if args.y_metric == "share":
         metric_key = "ousted_population_share"
-        metric_label = "Ousted MCD population share"
+        metric_label = f"Ousted {municipality_name} population share"
         use_percent_axis = True
     else:
         metric_key = "ousted_population"
-        metric_label = "Ousted MCD population"
+        metric_label = f"Ousted {municipality_name} population"
         use_percent_axis = False
 
     refs = {} if args.skip_official_plans else load_reference_summaries(args.reference_json)
@@ -291,7 +293,10 @@ def main() -> None:
         metric_key=metric_key,
         metric_label=metric_label,
         use_percent_axis=use_percent_axis,
-        title=args.title,
+        title=(
+            args.title if args.title is not None
+            else f"Ousted {municipality_name} population marginal distributions"
+        ),
         extra_series=extra_series,
     )
 
