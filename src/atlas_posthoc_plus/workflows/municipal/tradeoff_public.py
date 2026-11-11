@@ -71,6 +71,7 @@ from atlas_posthoc_plus.workflows.municipal.geography import (
     MunicipalGeography,
     add_municipality_arguments,
     geography_from_args,
+    municipality_name_for_traces,
 )
 
 
@@ -953,7 +954,7 @@ def plot_tradeoff(
             )
 
     ax.set_title(title, fontsize=22, pad=14)
-    ax.set_xlabel("Number of cut municipalities", fontsize=16)
+    ax.set_xlabel(f"Number of cut {municipality_name_for_traces(traces)}s", fontsize=16)
     ax.set_ylabel(y_label, fontsize=16)
 
     if use_percent_axis:
@@ -1203,11 +1204,11 @@ def main() -> None:
 
     if args.y_metric == "share":
         y_key = "ousted_population_share"
-        y_label = "Ousted municipal population share"
+        y_label = f"Ousted {geography.display_name} population share"
         use_percent_axis = True
     else:
         y_key = "ousted_population"
-        y_label = "Ousted municipal population"
+        y_label = f"Ousted {geography.display_name} population"
         use_percent_axis = False
 
     plot_tradeoff(

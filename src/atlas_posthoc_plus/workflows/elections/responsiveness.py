@@ -52,6 +52,7 @@ PLAN_STYLES = {
     "Overturned ('21)": {"color": "#2ca02c", "marker": "o"},
     "Remedial ('22)": {"color": "#d62728", "marker": "o"},
 }
+PUBLIC_SOURCE = "Public submitted plans"
 
 RACE_MANIFEST = {
     2016: [
@@ -406,6 +407,74 @@ def load_officials(graph_nodes, crosswalk_csv, enacted, overturned, remedial, of
         out.append({"source": label, "chain_id": "", "map_index": "", "proposal": label, "assignment": assn})
     return out
 
+def load_publics(
+    graph_nodes,
+    crosswalk_csv,
+    public_plan_dir,
+    official_key_col,
+    node_id_col,
+    block_col,
+    district_col,
+    expected_districts,
+):
+    source = Path(public_plan_dir)
+    if not source.exists():
+        raise FileNotFoundError(f"Public plan directory not found: {source}")
+    paths = sorted(source.glob("*.csv"))
+    if not paths:
+        raise ValueError(f"No public plan CSV files found in {source}")
+
+    cw = read_crosswalk(crosswalk_csv)
+    graph_node_count = graph_nodes[node_id_col].nunique()
+    out, manifest_rows = [], []
+    for path in paths:
+        row = {"plan_id": path.stem, "path": str(path), "status": "failed", "reason": ""}
+        try:
+            block_plan = read_baf(path, block_col, district_col)
+            block_districts = int(block_plan["DISTRICT"].nunique())
+            if block_districts != expected_districts:
+                raise ValueError(
+                    f"expected {expected_districts} districts, found {block_districts}"
+                )
+            assn = official_assignment(
+                block_plan, cw, graph_nodes, official_key_col, node_id_col
+            )
+            graph_districts = int(assn.nunique())
+            matched_share = len(assn) / max(graph_node_count, 1)
+            if graph_districts != expected_districts:
+                raise ValueError(
+                    f"graph assignment has {graph_districts} districts, "
+                    f"expected {expected_districts}"
+                )
+            if matched_share < 0.95:
+                raise ValueError(
+                    f"matched graph-node share {matched_share:.1%} is below 95%"
+                )
+            out.append(
+                {
+                    "source": PUBLIC_SOURCE,
+                    "chain_id": "",
+                    "map_index": "",
+                    "proposal": path.stem,
+                    "assignment": assn,
+                }
+            )
+            row.update(
+                {
+                    "status": "ok",
+                    "matched_graph_nodes": len(assn),
+                    "matched_graph_node_share": matched_share,
+                    "n_districts": graph_districts,
+                }
+            )
+        except Exception as exc:
+            row["reason"] = f"{type(exc).__name__}: {exc}"
+            print(f"  Skipping public plan {path.name}: {row['reason']}")
+        manifest_rows.append(row)
+
+    print(f"Public plans accepted for responsiveness: {len(out)} / {len(paths)}")
+    return out, pd.DataFrame(manifest_rows)
+
 def dem_seats(assignment, votes, dem_col, rep_col, node_id_col="node_id"):
     a = assignment.rename("DISTRICT").rename_axis(node_id_col).reset_index()
     a[node_id_col] = pd.to_numeric(a[node_id_col], errors="coerce").astype(int)
@@ -620,6 +689,9 @@ def parse_args():
     p.add_argument("--no-compliance-filter", action="store_true")
     p.add_argument("--assignment-block-col", default=None)
     p.add_argument("--assignment-district-col", default=None)
+    p.add_argument("--overlay-public-plans", action="store_true")
+    p.add_argument("--public-plan-dir", default=None)
+    p.add_argument("--public-seats-output", default=None)
     p.add_argument("--title", default="Ohio congressional responsiveness across statewide elections")
     return p.parse_args()
 
@@ -654,9 +726,42 @@ def main():
     officials = load_officials(graph, args.crosswalk_csv, args.enacted_baf, args.overturned_baf, args.remedial_baf,
                                args.official_key_col, args.node_id_col, args.assignment_block_col, args.assignment_district_col)
 
-    ens, off, race_summary = evaluate(assignments, officials, votes, races_all)
+    publics = []
+    if args.overlay_public_plans:
+        if args.public_plan_dir is None:
+            raise ValueError("--overlay-public-plans requires --public-plan-dir")
+        publics, public_manifest = load_publics(
+            graph,
+            args.crosswalk_csv,
+            args.public_plan_dir,
+            args.official_key_col,
+            args.node_id_col,
+            args.assignment_block_col,
+            args.assignment_district_col,
+            args.n_districts,
+        )
+        public_manifest.to_csv(
+            outdir / "oh_responsiveness_public_plan_manifest.csv", index=False
+        )
+
+    ens, evaluated_refs, race_summary = evaluate(
+        assignments, officials + publics, votes, races_all
+    )
+    off = evaluated_refs[evaluated_refs["source"].isin(PLAN_STYLES)].copy()
+    public_seats = evaluated_refs[
+        evaluated_refs["source"] == PUBLIC_SOURCE
+    ].copy()
     ens.to_csv(outdir / "oh_responsiveness_ensemble_seats.csv", index=False)
     off.to_csv(outdir / "oh_responsiveness_official_plan_seats.csv", index=False)
+    if args.overlay_public_plans:
+        public_seats_output = (
+            Path(args.public_seats_output)
+            if args.public_seats_output
+            else outdir / "oh_responsiveness_public_plan_seats.csv"
+        )
+        public_seats_output.parent.mkdir(parents=True, exist_ok=True)
+        public_seats.to_csv(public_seats_output, index=False)
+        print(f"Wrote public-plan seats: {public_seats_output}")
     race_summary.to_csv(outdir / "oh_responsiveness_race_summary.csv", index=False)
 
     plot(ens, off, race_summary, output_plot, args.title, args.n_districts)

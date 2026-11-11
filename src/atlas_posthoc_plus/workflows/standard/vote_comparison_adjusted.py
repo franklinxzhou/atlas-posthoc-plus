@@ -31,6 +31,9 @@ from pathlib import Path
 from typing import Any
 
 from atlas_posthoc_plus.paper import save_figure
+from atlas_posthoc_plus.workflows.elections.public_vote_comparison import (
+    plot_public_plan_comparison,
+)
 
 import matplotlib
 
@@ -50,7 +53,15 @@ from atlas_posthoc_plus.io.chain_sweep import (
 )
 
 # atlas-posthoc
-from atlas_posthoc.plotting.marginals import plot_vote_share_boxplots
+# Use the lower-level boxplot helper because the vote-share convenience wrapper
+# does not expose ``box_width``.
+from atlas_posthoc.plotting.marginals import (
+    plot_ordered_boxplots_by_chain as plot_vote_share_boxplots,
+)
+
+
+_CHAIN_BOX_WIDTH = 0.10
+_POOLED_BOX_WIDTH = 0.30
 
 
 # =============================================================================
@@ -858,6 +869,7 @@ def build_external_plan_vectors(
     dem_col: str,
     rep_col: str,
     n_districts: int,
+    skip_errors: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     vector_rows: list[dict[str, Any]] = []
     qa_rows: list[dict[str, Any]] = []
@@ -877,22 +889,38 @@ def build_external_plan_vectors(
 
         print(f"\nReading external plan {plan_id}: {plan_path}")
 
-        assignment = read_block_assignment_plan(
-            plan_path,
-            geoid_col=geoid_col,
-            district_col=district_col,
-        )
+        try:
+            assignment = read_block_assignment_plan(
+                plan_path,
+                geoid_col=geoid_col,
+                district_col=district_col,
+            )
 
-        vec, qa = ordered_vote_vector_for_block_plan(
-            assignment,
-            crosswalk,
-            graph_votes,
-            name_col=name_col,
-            external_vote_name_col=external_vote_name_col,
-            dem_col=dem_col,
-            rep_col=rep_col,
-            n_districts=n_districts,
-        )
+            vec, qa = ordered_vote_vector_for_block_plan(
+                assignment,
+                crosswalk,
+                graph_votes,
+                name_col=name_col,
+                external_vote_name_col=external_vote_name_col,
+                dem_col=dem_col,
+                rep_col=rep_col,
+                n_districts=n_districts,
+            )
+        except Exception as exc:
+            if not skip_errors:
+                raise
+            print(f"  Skipping {plan_id}: {type(exc).__name__}: {exc}")
+            qa_rows.append(
+                {
+                    "plan_id": plan_id,
+                    "plan_group": plan_group,
+                    "plot_role": plot_role,
+                    "path": str(plan_path),
+                    "status": "failed",
+                    "reason": f"{type(exc).__name__}: {exc}",
+                }
+            )
+            continue
 
         for rank, share in enumerate(vec, start=1):
             vector_rows.append(
@@ -911,6 +939,8 @@ def build_external_plan_vectors(
                 "plan_group": plan_group,
                 "plot_role": plot_role,
                 "path": str(plan_path),
+                "status": "ok",
+                "reason": "",
                 **qa,
             }
         )
@@ -918,6 +948,26 @@ def build_external_plan_vectors(
         print(f"  ordered vote vector: {np.round(vec, 4)}")
 
     return pd.DataFrame(vector_rows), pd.DataFrame(qa_rows)
+
+
+def public_plan_manifest(public_plan_dir: str | Path) -> pd.DataFrame:
+    source = Path(public_plan_dir)
+    if not source.exists():
+        raise FileNotFoundError(f"Public plan directory not found: {source}")
+    paths = sorted(source.glob("*.csv"))
+    if not paths:
+        raise ValueError(f"No public plan CSV files found in {source}")
+    return pd.DataFrame(
+        [
+            {
+                "plan_id": path.stem,
+                "plan_group": "Public submitted plans",
+                "plot_role": "public",
+                "path": str(path.resolve()),
+            }
+            for path in paths
+        ]
+    )
 
 
 # =============================================================================
@@ -933,12 +983,27 @@ def plot_comparison_using_atlas_posthoc(
     output_path: Path,
     title: str,
     y_limits: tuple[float, float] | None,
+    pool_chains: bool = False,
+    ensemble_label: str = "Sampled plans",
+    overlay_public_plans: bool = False,
 ) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Keep the per-chain arrays for compliance and CSV outputs, but optionally
+    # pool them into one mapping entry for the visualization. This removes the
+    # chain identity from the box colors/legend without changing the analysis.
+    plot_runs = compliant_runs
+    if pool_chains:
+        nonempty_runs = [arr for arr in compliant_runs.values() if arr.size]
+        if not nonempty_runs:
+            raise RuntimeError("Cannot pool chains: no compliant vote vectors remain.")
+        plot_runs = {ensemble_label: np.vstack(nonempty_runs)}
+
     # atlas-posthoc draws the ensemble boxplot
     fig, ax = plot_vote_share_boxplots(
-        compliant_runs,
+        plot_runs,
+        observable_kind="vote_share",
+        box_width=_POOLED_BOX_WIDTH if pool_chains else _CHAIN_BOX_WIDTH,
         title=title,
         y_limits=y_limits,
         output_path=None,
@@ -952,19 +1017,32 @@ def plot_comparison_using_atlas_posthoc(
     if not external_long.empty:
         public = external_long[external_long["plot_role"].str.lower() == "public"]
 
-        for _, g in public.groupby("plan_id"):
-            g = g.sort_values("rank")
-            ax.plot(
-                g["rank"],
-                g["dem_share"],
-                color="gray",
-                alpha=0.25,
-                linewidth=0.9,
-                zorder=2,
+        if overlay_public_plans and not public.empty:
+            ax.scatter(
+                public["rank"],
+                public["dem_share"],
+                s=9,
+                marker="o",
+                color="#c62828",
+                alpha=0.28,
+                edgecolors="none",
+                label=f"Public submitted plans ({public['plan_id'].nunique()})",
+                zorder=1.5,
             )
+        else:
+            for _, g in public.groupby("plan_id"):
+                g = g.sort_values("rank")
+                ax.plot(
+                    g["rank"],
+                    g["dem_share"],
+                    color="gray",
+                    alpha=0.25,
+                    linewidth=0.9,
+                    zorder=2,
+                )
 
-        if not public.empty:
-            ax.plot([], [], color="gray", alpha=0.7, linewidth=1.0, label="Public proposals")
+            if not public.empty:
+                ax.plot([], [], color="gray", alpha=0.7, linewidth=1.0, label="Public proposals")
 
     # Highlighted plans: colored lines
     highlighted = external_long[external_long["plot_role"].str.lower() != "public"]
@@ -1047,6 +1125,36 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--title",
         default="Ohio Congressional Plans Under 2020 Presidential Election",
+    )
+    parser.add_argument(
+        "--pool-chains",
+        action="store_true",
+        help=(
+            "Plot all compliant sampled plans as one pooled ensemble instead "
+            "of showing a separate box for each chain."
+        ),
+    )
+    parser.add_argument(
+        "--ensemble-label",
+        default="Sampled plans",
+        help="Legend label for the pooled sampled-plan ensemble.",
+    )
+    parser.add_argument(
+        "--overlay-public-plans",
+        action="store_true",
+        help="Overlay public plans and also write public-plan ordered vote-share boxes.",
+    )
+    parser.add_argument(
+        "--public-output",
+        type=Path,
+        default=None,
+        help="Public boxplot output; defaults to <output-dir>/oh_public_plans_ordered_vote_shares.png.",
+    )
+    parser.add_argument(
+        "--public-plan-dir",
+        type=Path,
+        default=None,
+        help="Directory of public submitted block-assignment CSV files.",
     )
 
     parser.add_argument(
@@ -1162,6 +1270,28 @@ def main() -> None:
         n_districts=args.n_districts,
     )
 
+    if args.overlay_public_plans:
+        if args.public_plan_dir is None:
+            raise ValueError("--overlay-public-plans requires --public-plan-dir")
+        public_long, public_qa = build_external_plan_vectors(
+            public_plan_manifest(args.public_plan_dir),
+            manifest_path=args.public_plan_dir / "public-plan-manifest.csv",
+            crosswalk=crosswalk,
+            graph_votes=graph_votes,
+            name_col=args.name_col,
+            external_vote_name_col=args.external_vote_name_col,
+            dem_col=args.dem_col,
+            rep_col=args.rep_col,
+            n_districts=args.n_districts,
+            skip_errors=True,
+        )
+        external_long = pd.concat([external_long, public_long], ignore_index=True)
+        external_qa = pd.concat([external_qa, public_qa], ignore_index=True)
+        print(
+            f"Accepted public plans for vote overlay: "
+            f"{public_long['plan_id'].nunique() if not public_long.empty else 0}"
+        )
+
     external_vectors_path = args.output_dir / "external_plan_ordered_vote_vectors.csv"
     external_qa_path = args.output_dir / "external_plan_qa.csv"
 
@@ -1198,7 +1328,24 @@ def main() -> None:
         output_path=plot_path,
         title=args.title,
         y_limits=(args.y_min, args.y_max),
+        pool_chains=args.pool_chains,
+        ensemble_label=args.ensemble_label,
+        overlay_public_plans=args.overlay_public_plans,
     )
+
+    if args.overlay_public_plans:
+        public_plot_path = plot_public_plan_comparison(
+            external_long,
+            n_districts=args.n_districts,
+            output_path=(
+                args.public_output
+                if args.public_output is not None
+                else args.output_dir / "oh_public_plans_ordered_vote_shares.png"
+            ),
+            title=args.title,
+            y_limits=(args.y_min, args.y_max),
+        )
+        print(f"Wrote public-plan ordered vote-share plot: {public_plot_path}")
 
     print("\nDone.")
     print(f"Output directory: {args.output_dir}")

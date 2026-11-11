@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plot overlaid multi-ensemble histograms of cut MCD counts."""
+"""Plot overlaid multi-ensemble histograms of cut municipality counts."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from matplotlib.patches import Patch
 from matplotlib.ticker import PercentFormatter
 import numpy as np
 
+from atlas_posthoc_plus.workflows.municipal.geography import municipality_name_for_traces
 from atlas_posthoc_plus.workflows.municipal.marginal_helpers import (
     REFERENCE_LINE_STYLES,
     CollectionSeries,
@@ -107,7 +108,7 @@ def plot_cut_mcd_histograms(
         ref_handles.append(Line2D([0], [0], label=label, **style))
 
     ax.set_xlim(bins[0], bins[-1])
-    ax.set_xlabel("Number of cut MCDs")
+    ax.set_xlabel(f"Number of cut {municipality_name_for_traces(traces)}s")
     ax.set_ylabel("Share of plans" if density else "Count")
     fig.suptitle(title, fontsize=18, y=0.98)
     ax.grid(True, axis="y", alpha=0.25)
@@ -145,7 +146,7 @@ def plot_cut_mcd_histograms(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Plot overlaid marginal histograms of cut MCD counts across municipal "
+            "Plot overlaid marginal histograms of cut municipality counts across municipal "
             "trace collections, with official-plan reference lines."
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -213,8 +214,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--title",
-        default="Cut MCD marginal distributions",
-        help="Plot title.",
+        default=None,
+        help="Plot title (defaults to the trace geography).",
     )
     return parser.parse_args()
 
@@ -243,7 +244,10 @@ def main() -> None:
         refs=refs,
         output=args.output,
         density=args.density,
-        title=args.title,
+        title=(
+            args.title if args.title is not None
+            else f"Cut {municipality_name_for_traces(traces)} marginal distributions"
+        ),
         extra_series=extra_series,
     )
 

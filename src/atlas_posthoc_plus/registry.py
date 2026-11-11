@@ -254,6 +254,29 @@ _register(
             MAX_MAPS,
             Binding("--external-vote-name-col", "columns.official_key", default="ORIG_NAME"),
             Binding("--pop-col", "columns.population", default="POP20"),
+            Binding(
+                "--pool-chains",
+                "workflow.vote-comparison-adjusted.pool_chains",
+                "flag",
+            ),
+            Binding(
+                "--ensemble-label",
+                "workflow.vote-comparison-adjusted.ensemble_label",
+            ),
+            Binding("--public-plan-dir", "inputs.public_plan_dir", "path"),
+            Binding(
+                "--overlay-public-plans",
+                "workflow.vote-comparison-adjusted.overlay_public_plans",
+                "flag",
+            ),
+            Binding(
+                "--public-output",
+                "outputs.public_vote_comparison",
+                "path",
+                default=OutputDefault(
+                    "vote-comparison-adjusted/oh_public_plans_ordered_vote_shares.png"
+                ),
+            ),
         ),
     )
 )
@@ -428,7 +451,7 @@ _register(
         "municipal-outside-population-marginals",
         "atlas_posthoc_plus.workflows.municipal.outside_population_marginals",
         "municipal",
-        "Compare ousted MCD population marginals across trace collections.",
+        "Compare ousted municipal population marginals across trace collections.",
         (
             Binding(
                 "--trace-collection",
@@ -480,7 +503,7 @@ _register(
         "municipal-cut-mcd-histograms",
         "atlas_posthoc_plus.workflows.municipal.cut_mcd_histograms",
         "municipal",
-        "Compare overlaid cut-MCD histograms across trace collections.",
+        "Compare overlaid cut-municipality histograms across trace collections.",
         (
             Binding(
                 "--trace-collection",
@@ -1072,6 +1095,68 @@ _register(
 
 _register(
     WorkflowSpec(
+        "regional-african-american-cvap",
+        "atlas_posthoc_plus.workflows.demographics.regional_black_cvap",
+        "demographics",
+        "Compare district-level metro-area African American CVAP location quotients.",
+        (
+            CHAINS,
+            Binding("--cua-graph-json", "inputs.cua_graph_json", "path", required=True),
+            Binding("--msa-graph-json", "inputs.msa_graph_json", "path", required=True),
+            Binding("--cua-manifest", "inputs.cua_manifest", "path", required=True),
+            Binding("--msa-manifest", "inputs.msa_manifest", "path", required=True),
+            Binding("--region-blocks", "inputs.region_blocks", "path", required=True),
+            Binding("--cbsa-file", "inputs.cbsa_file", "path", required=True),
+            Binding("--cvap-file", "inputs.cvap_file", "path", required=True),
+            ENACTED,
+            OVERTURNED,
+            REMEDIAL,
+            Binding(
+                "--output-cua",
+                "outputs.regional_african_american_cvap_cua",
+                "path",
+                default=OutputDefault(
+                    "demographics/regional-african-american-cvap-cua.pdf"
+                ),
+            ),
+            Binding(
+                "--output-msa",
+                "outputs.regional_african_american_cvap_msa",
+                "path",
+                default=OutputDefault(
+                    "demographics/regional-african-american-cvap-msa.pdf"
+                ),
+            ),
+            Binding(
+                "--output-csv",
+                "outputs.regional_african_american_cvap_csv",
+                "path",
+                default=OutputDefault(
+                    "demographics/regional-african-american-cvap.csv"
+                ),
+            ),
+            Binding(
+                "--compliance-summary-csv",
+                "outputs.regional_african_american_cvap_compliance_csv",
+                "path",
+                default=OutputDefault(
+                    "demographics/regional-african-american-cvap-compliance.csv"
+                ),
+            ),
+            Binding(
+                "--minimum-region-cvap-share",
+                "workflow.regional-african-american-cvap.minimum_region_cvap_share",
+                "value",
+            ),
+            MAX_COUNTY,
+            N_DISTRICTS,
+            MAX_MAPS,
+        ),
+    )
+)
+
+_register(
+    WorkflowSpec(
         "responsiveness",
         "atlas_posthoc_plus.workflows.elections.responsiveness",
         "elections",
@@ -1094,6 +1179,20 @@ _register(
             MAX_COUNTY,
             MAX_MAPS,
             N_DISTRICTS,
+            Binding("--public-plan-dir", "inputs.public_plan_dir", "path"),
+            Binding(
+                "--overlay-public-plans",
+                "workflow.responsiveness.overlay_public_plans",
+                "flag",
+            ),
+            Binding(
+                "--public-seats-output",
+                "outputs.responsiveness_public_seats",
+                "path",
+                default=OutputDefault(
+                    "responsiveness/oh_responsiveness_public_plan_seats.csv"
+                ),
+            ),
         ),
     )
 )
@@ -1126,10 +1225,31 @@ _register(
                 ),
             ),
             Binding(
+                "--public-seats",
+                "inputs.public_seats",
+                "path",
+                default=OutputDefault(
+                    "responsiveness/oh_responsiveness_public_plan_seats.csv"
+                ),
+            ),
+            Binding(
+                "--overlay-public-plans",
+                "workflow.responsiveness.overlay_public_plans",
+                "flag",
+            ),
+            Binding(
                 "--output",
                 "outputs.responsiveness_zoom",
                 "path",
                 default=OutputDefault("responsiveness/responsiveness-zoom.png"),
+            ),
+            Binding(
+                "--public-output",
+                "outputs.responsiveness_public_zoom",
+                "path",
+                default=OutputDefault(
+                    "responsiveness/responsiveness-zoom-public-plans.png"
+                ),
             ),
             N_DISTRICTS,
         ),
@@ -1193,6 +1313,7 @@ PIPELINES: dict[str, tuple[str, ...]] = {
         "official-polsby",
         "polsby-trace",
         "ranked-vote-cvap",
+        "regional-african-american-cvap",
         "responsiveness",
     ),
     "municipal": (

@@ -875,7 +875,7 @@ def plot_one_rank(
     official_ousted: dict[str, float],
     output_path: str | Path,
     title_prefix: str,
-    municipality_label: str = "MCD",
+    municipality_label: str = "county subdivision",
 ) -> None:
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.8))
 
@@ -897,7 +897,7 @@ def plot_one_rank(
         edgecolor="#4a5568",
         linewidth=0.8,
     )
-    ax.set_title("Ousted municipal population")
+    ax.set_title(f"Ousted {municipality_label} population")
     ax.set_xlabel("Ousted population")
     ax.set_ylabel("Density of plans")
     add_reference_marks(ax, official_ousted)
@@ -1135,7 +1135,7 @@ def main() -> None:
             official_ousted=official_ousted_marks,
             output_path=output_path,
             title_prefix=args.title_prefix,
-            municipality_label=("Place" if geography.mode == "PLACE" else "MCD"),
+            municipality_label=geography.display_name,
         )
 
         print(f"Wrote {output_path}")
