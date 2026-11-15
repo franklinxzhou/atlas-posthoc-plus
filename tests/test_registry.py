@@ -10,8 +10,8 @@ from atlas_posthoc_plus.runner import prepare_workflow
 
 def test_all_workflow_modules_are_registered() -> None:
     modules = {spec.module for spec in WORKFLOWS.values()}
-    assert len(WORKFLOWS) == 26
-    assert len(modules) == 26
+    assert len(WORKFLOWS) == 27
+    assert len(modules) == 27
     assert all(importlib.util.find_spec(module) is not None for module in modules)
 
 
