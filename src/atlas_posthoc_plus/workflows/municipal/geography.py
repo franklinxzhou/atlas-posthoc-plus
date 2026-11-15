@@ -515,11 +515,27 @@ class MunicipalGeography:
 
         if not isinstance(blocks, gpd.GeoDataFrame) or blocks.crs is None:
             raise ValueError("PLACE mode requires block geometry with a CRS")
+        expected = self._graph_place_totals()
+        if expected == {}:
+            # All graph nodes are outside the selected municipality universe.
+            return []
+
         assert self.place_shapefile is not None
         places = gpd.read_file(self.place_shapefile)
-        if places.empty or places.crs is None:
+        if places.crs is None or (expected is None and places.empty):
             raise ValueError("Place layer must be non-empty and have a CRS")
-        place_key_col = self._resolve_place_key_column(places)
+        place_key_col = self._resolve_place_key_column(places, graph_keys=expected)
+        if expected is not None:
+            place_keys = places[place_key_col].map(_normalize_token)
+            missing = expected.keys() - set(place_keys)
+            if missing:
+                raise ValueError(
+                    f"PLACE identifiers from graph {self.graph_json} are missing from "
+                    f"column {place_key_col!r} in Place layer {self.place_shapefile} "
+                    f"({len(missing)} missing, examples: {sorted(missing)[:5]}). "
+                    "Check place_key_column and supply a layer covering the selected graph."
+                )
+            places = places.loc[place_keys.isin(expected.keys())].copy()
         if places.crs != blocks.crs:
             places = places.to_crs(blocks.crs)
 
@@ -531,7 +547,7 @@ class MunicipalGeography:
             how="inner",
             predicate="within",
         )
-        # The graph-generation contract excludes blocks outside every Place.
+        # The inner join excludes blocks outside the selected Places.
         joined[block_col] = joined[block_col].map(_normalize_block_id)
         joined[place_key_col] = joined[place_key_col].map(_normalize_token)
         joined[pop_col] = pd.to_numeric(joined[pop_col], errors="coerce").fillna(0.0)
@@ -545,77 +561,83 @@ class MunicipalGeography:
             }
             for _, row in joined.iterrows()
         ]
-        self._validate_place_block_totals(records)
+        if expected is not None:
+            self._validate_place_block_totals(records, expected)
         return records
 
-    def _validate_place_block_totals(self, records: list[dict[str, Any]]) -> None:
-        """Ensure the reference-plan block geography reproduces the graph arm."""
-        if self.graph_json is None or not self.graph_json.is_file():
-            return
+    def _graph_place_totals(self) -> dict[str, float] | None:
+        """Read normalized PLACE totals, retaining keys with zero population."""
+        if self.graph_json is None:
+            return None
         from atlas_posthoc_plus.io.graph import read_graph_frame
 
         graph = read_graph_frame(self.graph_json)
         if self.mapping_column not in graph.columns:
-            return
+            raise ValueError(
+                f"Graph {self.graph_json} is missing PLACE mapping column {self.mapping_column!r}"
+            )
         expected: dict[str, float] = {}
         for mapping in graph[self.mapping_column]:
             if not isinstance(mapping, Mapping):
-                continue
+                raise TypeError(
+                    f"Graph {self.graph_json} requires a mapping in {self.mapping_column!r} "
+                    "for each node. Use an empty mapping for nodes outside selected Places."
+                )
             for place, population in mapping.items():
                 key = _normalize_token(place)
+                if not key:
+                    raise ValueError("PLACE mappings may not contain empty names")
                 expected[key] = expected.get(key, 0.0) + float(population)
+        return expected
+
+    def _validate_place_block_totals(
+        self, records: list[dict[str, Any]], expected: Mapping[str, float]
+    ) -> None:
+        """Ensure the reference-plan block geography reproduces the graph arm."""
         actual: dict[str, float] = {}
         for record in records:
             for place, population in record[self.mapping_column].items():
                 key = _normalize_token(place)
                 actual[key] = actual.get(key, 0.0) + float(population)
         if actual != expected:
-            differing = sorted(
-                key
-                for key in set(actual) | set(expected)
-                if actual.get(key, 0.0) != expected.get(key, 0.0)
-            )
+            unassigned = sorted(expected.keys() - actual.keys())
+            unexpected = sorted(actual.keys() - expected.keys())
+            differing = [
+                (key, actual[key], expected[key])
+                for key in sorted(actual.keys() & expected.keys())
+                if actual[key] != expected[key]
+            ]
             raise ValueError(
                 "Block-to-Place assignment does not reproduce the selected graph's "
                 f"PLACE populations ({sum(actual.values()):,.0f} versus "
                 f"{sum(expected.values()):,.0f}); use the same block-geometry "
-                "checkpoint as graph generation. Differing Place keys include "
-                f"{differing[:5]}"
+                "checkpoint as graph generation. Selected keys with no assigned blocks "
+                f"include {unassigned[:5]}. Unexpected assigned keys include {unexpected[:5]}. "
+                f"Population differences (key, block total, graph total) include {differing[:5]}."
             )
 
-    def _resolve_place_key_column(self, places: pd.DataFrame) -> str:
+    def _resolve_place_key_column(
+        self, places: pd.DataFrame, *, graph_keys: Iterable[str] | None = None
+    ) -> str:
         if self.place_key_column is not None:
-            return _resolve_column(
-                places.columns, [self.place_key_column], label="Place key"
-            )
+            return _resolve_column(places.columns, [self.place_key_column], label="Place key")
 
         candidates = [
             column
             for column in ("GEOID", "PLACEFP", "NAME", "NAME20", "NAMELSAD")
             if column in places.columns
         ]
-        if self.graph_json is not None and self.graph_json.is_file():
-            from atlas_posthoc_plus.io.graph import read_graph_frame
-
-            graph = read_graph_frame(self.graph_json)
-            if self.mapping_column in graph.columns:
-                graph_keys = {
-                    _normalize_token(key)
-                    for mapping in graph[self.mapping_column]
-                    if isinstance(mapping, Mapping)
-                    for key in mapping
-                }
-                if graph_keys:
-                    scores = {
-                        column: len(
-                            graph_keys
-                            & set(places[column].map(_normalize_token).tolist())
-                        )
-                        for column in candidates
-                    }
-                    best = max(scores, key=scores.get, default=None)
-                    if best is not None and scores[best] > 0:
-                        return best
+        if graph_keys is None and self.graph_json is not None and self.graph_json.is_file():
+            graph_keys = self._graph_place_totals()
+        if graph_keys:
+            selected = set(graph_keys)
+            scores = {
+                column: len(selected.intersection(places[column].map(_normalize_token)))
+                for column in candidates
+            }
+            best = max(scores, key=scores.get, default=None)
+            if best is not None and scores[best] > 0:
+                return best
 
         # Compatibility with the older name-keyed PLACE graph described in the
         # handoff. Current sampler graphs are detected as GEOID above.
