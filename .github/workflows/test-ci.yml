@@ -1,0 +1,39 @@
+name: Test CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Checkout atlas-posthoc
+        uses: actions/checkout@v6
+        with:
+          repository: franklinxzhou/atlas-posthoc
+          path: .ci/atlas-posthoc
+          token: ${{ secrets.ATLAS_POSTHOC_READ_TOKEN }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .ci/atlas-posthoc -e ".[dev]"
+
+      - name: Run tests
+        run: python -m pytest

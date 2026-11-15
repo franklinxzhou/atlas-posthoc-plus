@@ -1,3 +1,5 @@
+[![Test CI](https://github.com/franklinxzhou/atlas-posthoc-plus/actions/workflows/test-ci.yml/badge.svg)](https://github.com/franklinxzhou/atlas-posthoc-plus/actions/workflows/test-ci.yml)
+
 # atlas-posthoc-plus
 
 `atlas-posthoc-plus` is a self-contained Python package for producing the
