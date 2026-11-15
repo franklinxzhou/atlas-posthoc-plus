@@ -190,65 +190,122 @@ def test_place_summary_uses_only_represented_place_population(tmp_path: Path) ->
         )
 
 
-def test_place_block_assignment_excludes_blocks_outside_places(tmp_path: Path) -> None:
+@pytest.fixture
+def place_layers(tmp_path: Path) -> tuple[Path, Path]:
     gpd = pytest.importorskip("geopandas")
-    from shapely.geometry import Polygon
+    from shapely.geometry import box
 
     blocks_path = tmp_path / "blocks.geojson"
-    places_path = tmp_path / "places.geojson"
+    places_path = tmp_path / "places.shp"
+    gpd.GeoDataFrame(
+        {
+            "GEOID20": ["1", "2", "3", "4"],
+            "POP20": [25, 75, 50, 100],
+            "geometry": [box(x, 0, x + 1, 1) for x in (0, 5, 10, 15)],
+        },
+        crs="EPSG:4326",
+    ).to_file(blocks_path)
+    gpd.GeoDataFrame(
+        {
+            "NAME": ["First", "Second", "Third"],
+            "GEOID": ["0100001", "0100002", "0100003"],
+            "geometry": [box(x - 1, -1, x + 2, 2) for x in (0, 5, 10)],
+        },
+        crs="EPSG:4326",
+    ).to_file(places_path)
+    return blocks_path, places_path
+
+
+def write_place_graph(
+    tmp_path: Path, mapping: dict[str, int], *, mapping_column: str = "PLACE"
+) -> Path:
     graph_path = tmp_path / "place-graph.json"
-    blocks = gpd.GeoDataFrame(
-        {
-            "GEOID20": ["1", "2"],
-            "POP20": [25, 75],
-            "geometry": [
-                Polygon([(0, 0), (2, 0), (2, 2), (0, 2)]),
-                Polygon([(10, 10), (12, 10), (12, 12), (10, 12)]),
-            ],
-        },
-        crs="EPSG:4326",
-    )
-    places = gpd.GeoDataFrame(
-        {
-            "NAME": ["Inside"],
-            "GEOID": ["3900001"],
-            "geometry": [Polygon([(-1, -1), (3, -1), (3, 3), (-1, 3)])],
-        },
-        crs="EPSG:4326",
-    )
-    blocks.to_file(blocks_path, driver="GeoJSON")
-    places.to_file(places_path, driver="GeoJSON")
     graph_path.write_text(
         json.dumps(
             {
                 "directed": False,
                 "multigraph": False,
                 "graph": [],
-                "nodes": [
-                    {"id": 0, "PLACE": {"3900001": 25}, "POP20": 25}
-                ],
+                "nodes": [{"id": 0, mapping_column: mapping, "POP20": 250}],
                 "adjacency": [[]],
             }
         ),
         encoding="utf-8",
     )
+    return graph_path
+
+
+@pytest.mark.parametrize(
+    ("graph_mapping", "selected"),
+    [
+        pytest.param({" 0100001.0 ": 25}, [("0100001", 25)], id="subset-geoid"),
+        pytest.param(
+            {"Second": 75, "First": 25},
+            [("First", 25), ("Second", 75)],
+            id="multiple-names",
+        ),
+        pytest.param(
+            {"0100001": 25, "0100002": 75, "0100003": 50},
+            [("0100001", 25), ("0100002", 75), ("0100003", 50)],
+            id="full-graph",
+        ),
+        pytest.param({}, [], id="empty-selection"),
+        pytest.param(None, [("First", 25), ("Second", 75), ("Third", 50)], id="no-graph"),
+    ],
+)
+def test_place_block_assignment(
+    tmp_path: Path,
+    place_layers: tuple[Path, Path],
+    graph_mapping: dict[str, int] | None,
+    selected: list[tuple[str, int]],
+) -> None:
+    blocks_path, places_path = place_layers
+    graph_path = (
+        None
+        if graph_mapping is None
+        else write_place_graph(tmp_path, graph_mapping, mapping_column="municipalities")
+    )
     geography = MunicipalGeography(
         mode="PLACE",
         graph_json=graph_path,
+        mapping_column="municipalities",
         place_shapefile=places_path,
-        output_namespace="place",
     )
 
-    records = geography.read_block_nodes(blocks_path)
-
-    assert records == [
-        {"id": "000000000000001", "PLACE": {"3900001": 25.0}, "POP20": 25.0}
+    assert geography.read_block_nodes(blocks_path) == [
+        {"id": f"{block:015d}", "municipalities": {key: pop}, "POP20": pop}
+        for block, (key, pop) in enumerate(selected, start=1)
     ]
 
-    with pytest.raises(ValueError, match="does not reproduce"):
-        geography._validate_place_block_totals(
-            [{"id": "x", "PLACE": {"3900001": 26.0}, "POP20": 26.0}]
-        )
+
+def test_place_block_assignment_reports_missing_geometry(
+    tmp_path: Path, place_layers: tuple[Path, Path]
+) -> None:
+    blocks_path, places_path = place_layers
+    geography = MunicipalGeography(
+        mode="PLACE",
+        graph_json=write_place_graph(tmp_path, {"0100001": 25, "0100999": 0}),
+        place_shapefile=places_path,
+    )
+
+    with pytest.raises(ValueError, match=r"missing from column 'GEOID'.*0100999"):
+        geography.read_block_nodes(blocks_path)
+
+
+def test_place_block_assignment_rejects_population_mismatch(
+    tmp_path: Path, place_layers: tuple[Path, Path]
+) -> None:
+    blocks_path, places_path = place_layers
+    geography = MunicipalGeography(
+        mode="PLACE",
+        graph_json=write_place_graph(tmp_path, {"0100001": 26}),
+        place_shapefile=places_path,
+    )
+
+    with pytest.raises(
+        ValueError, match=r"25 versus 26.*block-geometry checkpoint.*0100001.*25.0, 26.0"
+    ):
+        geography.read_block_nodes(blocks_path)
 
 
 def test_cache_metadata_rejects_other_municipality_mode(tmp_path: Path) -> None:
