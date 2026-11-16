@@ -1,6 +1,7 @@
 EXAMPLE_CONFIG = """\
 [project]
-# All relative input paths are resolved from this directory.
+# Relative paths use this root, which is relative to this TOML file.
+# Replace the example paths and chain IDs with your project's values.
 root = "."
 
 [chains]
@@ -22,6 +23,20 @@ ousted_scale = "share"
 area_crs = "EPSG:26917"
 polsby_projected_crs = "EPSG:5070"
 
+# Use COUSUB with a graph whose MCD column holds municipality codes.
+# For PLACE workflows, use matching PLACE chains, set mode to "PLACE", set
+# mapping_column to the graph's Place mapping column (usually "PLACE"), and
+# set place_shapefile to the matching Census Place layer. Change both graph
+# paths, set inputs.block_metadata to the graph-generation block checkpoint,
+# and choose a distinct output_namespace such as "place".
+[municipality]
+mode = "COUSUB"
+graph_json = "inputs/graph.json"
+scalar_column = "MCD"
+output_namespace = "cousub"
+# mapping_column = "PLACE"
+# place_shapefile = "inputs/places.shp"
+
 [inputs]
 graph_json = "inputs/graph.json"
 crosswalk_csv = "inputs/block_to_precinct_crosswalk.csv"
@@ -39,6 +54,15 @@ other_geojson = "inputs/external/units.geojson"
 polsby_traces_json = "outputs/atlas-posthoc/diagnostics/polsby_popper_traces.json"
 # Optional: use this only if you already have a precomputed public-plan score CSV.
 # public_polsby_scores_csv = "outputs/polsby/public-plan-scores.csv"
+
+# For regional-african-american-cvap, supply these six additional inputs.
+# Both graphs must match the node IDs and order used by chains.files.
+# cua_graph_json = "inputs/regions/cua-graph.json"
+# msa_graph_json = "inputs/regions/msa-graph.json"
+# cua_manifest = "inputs/regions/cua-manifest.csv"
+# msa_manifest = "inputs/regions/msa-manifest.csv"
+# region_blocks = "inputs/regions/blocks-with-urban-area-codes.gpkg"
+# cbsa_file = "inputs/regions/cbsa.shp"
 
 [inputs.municipal_trace_collections]
 "MCD weight 20" = "inputs/traces/mcd20.json"
@@ -89,6 +113,7 @@ refresh_public_scores = false
 reuse_official_summary = true
 reuse_public_summary = true
 
+# These two workflows require municipality.mode = "PLACE".
 [workflow.municipal-place-partisanship]
 minimum_place_population = 25000
 label_count = 3
@@ -104,8 +129,8 @@ reuse_official_summary = true
 reuse_public_summary = true
 
 # Reusable PDF composition example. Uncomment after generating the source
-# workflows in paper mode. Each figure path is relative to that panel's source
-# configuration project.root.
+# workflows in paper mode. Replace the example config paths with your source
+# TOML files. Each figure path is relative to its source config's project.root.
 #
 # [workflow.figure-compositor]
 # design = '''
@@ -121,17 +146,17 @@ reuse_public_summary = true
 # id = "A"
 # workflow = "polsby-histogram"
 # config = "configs/baseline.toml"
-# figure = "outputs/polsby/polsby_histogram.pdf"
+# figure = "outputs/polsby/polsby-histogram.pdf"
 #
 # [[workflow.figure-compositor.panels]]
 # id = "B"
 # workflow = "responsiveness"
 # config = "configs/baseline.toml"
-# figure = "outputs/responsiveness/responsiveness.pdf"
+# figure = "outputs/responsiveness/ohio_responsiveness_all_statewide_races.pdf"
 #
 # [[workflow.figure-compositor.panels]]
 # id = "C"
 # workflow = "municipal-tradeoff"
 # config = "configs/place.toml"
-# figure = "outputs/place/municipal/tradeoff.pdf"
+# figure = "outputs/place/municipal/municipal-tradeoff.pdf"
 """
