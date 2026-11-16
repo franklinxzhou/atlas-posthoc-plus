@@ -1,6 +1,20 @@
 from pathlib import Path
 
 from atlas_posthoc_plus.cli import main
+from atlas_posthoc_plus.config import load_config
+from atlas_posthoc_plus.registry import WORKFLOWS
+
+
+def test_init_config_resolves_cousub_workflow_arguments(tmp_path: Path) -> None:
+    config_path = tmp_path / "analysis.toml"
+
+    assert main(["init", str(config_path)]) == 0
+
+    config = load_config(config_path)
+    args = WORKFLOWS["municipal-histograms-compliant"].build_args(config)
+    assert args[args.index("--municipality-mode") + 1] == "COUSUB"
+    assert args[args.index("--graph-path") + 1] == str(tmp_path / "inputs/graph.json")
+    assert args[args.index("--output-namespace") + 1] == "cousub"
 
 
 def test_run_dry_run_does_not_create_output_directory(

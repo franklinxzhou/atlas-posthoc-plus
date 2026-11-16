@@ -67,10 +67,10 @@ orchestration and specialized analyses.
 
 ## Installation
 
-For development with the adjacent `atlas-posthoc` checkout:
+For development, run these commands from the directory containing both the
+`atlas-posthoc` and `atlas-posthoc-plus` checkouts:
 
 ```bash
-cd /Users/franklinzhou/Documents/Work/Duke/Gerrymandering
 python3 -m pip install -e ./atlas-posthoc
 python3 -m pip install -e ./atlas-posthoc-plus
 ```
@@ -85,11 +85,15 @@ All workflows use one TOML configuration:
 atlas-posthoc-plus init analysis.toml
 ```
 
-Paths are resolved relative to `[project].root`. Input files can live anywhere;
-the package does not require a particular repository layout.
+The generated template uses placeholder paths and a COUSUB baseline. Point
+`[project].root` at your analysis project, then update the input paths and chain
+IDs for the workflows you want to run. A relative `project.root` is resolved
+from the TOML file's directory. Other relative paths are resolved from the
+project root. Pass `--config analysis.toml` before the command to use the
+generated file. The CLI defaults to `atlas-posthoc-plus.toml`.
 
-The checked-in `atlas-posthoc-plus.toml` is a ready-to-edit Ohio configuration
-using the four `run37`–`run40` chains.
+The checked-in `atlas-posthoc-plus.toml` assumes a sibling `oh-gerrymandering`
+checkout with the Ohio data and the four `run37`–`run40` chains.
 
 Important sections:
 
@@ -152,24 +156,25 @@ Use a separate configuration for the PLACE comparison:
 mode = "PLACE"
 graph_json = "data/graph/OH_pct20.json"
 mapping_column = "PLACE"
-place_shapefile = "data/raw/tl_2024_39_place"
+place_shapefile = "data/raw/tl_2024_39_place/tl_2024_39_place.shp"
 output_namespace = "place"
 
 [inputs]
+graph_json = "data/graph/OH_pct20.json"
 # This is the block-geometry checkpoint used by graph generation. Using the
 # raw TIGER block polygons changes the represented denominator by 26 people.
 block_metadata = "data/derived/cblocksMergeMultiPcts_OH.gpkg"
 ```
 
-PLACE graph nodes are exploded into weighted Place-population pieces. Official,
-remedial, and public plans assign Census blocks to the same Place layer using
-each block's interior representative point; blocks outside every Place are
-excluded from the PLACE population denominator. The adapter matches the Place
-layer key to the selected graph automatically: current sampler graphs use
-`GEOID`, while older name-keyed graphs continue to use `NAME`. Set
-`place_key_column` explicitly only to override that inference. Municipality-
-scoped default outputs are written below `outputs/<output_namespace>/`, and
-cache metadata prevents cross-arm reuse.
+Update `[chains].files` and `[chains].ids` to use chains sampled on that PLACE
+graph. PLACE graph nodes are exploded into weighted Place-population pieces.
+Official, remedial, and public plans assign Census blocks to Places represented
+in the selected graph using each block's interior representative point. The
+adapter checks that the assigned population totals agree with the graph. It
+automatically matches the Place layer's `GEOID` or `NAME` field to the graph's
+keys. Set `place_key_column` to override the inferred field. Municipality-scoped
+default outputs are written under `outputs.root` in the `output_namespace`
+subdirectory, and cache metadata prevents cross-arm reuse.
 
 ## Running one analysis
 
@@ -259,26 +264,30 @@ gap = 0.15
 id = "A"
 workflow = "polsby-histogram"
 config = "configs/baseline.toml"
-figure = "outputs/polsby/polsby_histogram.pdf"
+figure = "outputs/polsby/polsby-histogram.pdf"
 
 [[workflow.figure-compositor.panels]]
 id = "B"
 workflow = "responsiveness"
 config = "configs/baseline.toml"
-figure = "outputs/responsiveness/responsiveness.pdf"
+figure = "outputs/responsiveness/ohio_responsiveness_all_statewide_races.pdf"
 
 [[workflow.figure-compositor.panels]]
 id = "C"
 workflow = "municipal-tradeoff"
 config = "configs/place.toml"
-figure = "outputs/place/municipal/tradeoff.pdf"
+figure = "outputs/place/municipal/municipal-tradeoff.pdf"
 ```
 
-Generate each source with paper mode enabled, then validate and compose:
+Save this example as `compose.toml` in your project root and replace the
+example `config` paths with your source TOML files. The example
+figure paths assume each source uses `outputs.root = "outputs"` and the PLACE
+source uses `municipality.output_namespace = "place"`. Generate the source
+figures with paper mode enabled, then validate and compose:
 
 ```bash
-atlas-posthoc-plus doctor figure-compositor
-atlas-posthoc-plus run figure-compositor
+atlas-posthoc-plus --config compose.toml doctor figure-compositor
+atlas-posthoc-plus --config compose.toml run figure-compositor
 ```
 
 In a compact design, repeated IDs span cells and `#` or `.` creates a spacer.
@@ -589,8 +598,14 @@ rank as its official symbol; thin and thick segments show the middle 90% and
 50%. By default, intersections containing less than 1% of a region's CVAP
 remain in the audit CSV but do not enter the figure;
 configure `workflow.regional-african-american-cvap.minimum_region_cvap_share`
-to change that threshold. See
-[the methodological note](docs/regional-african-american-standardization.md).
+to change that threshold.
+
+Enable the six commented regional inputs in either example config to run this
+workflow. Set `cua_graph_json` and `msa_graph_json` to graphs with the same node
+IDs and order as the configured chains, and supply their matching
+`cua_manifest` and `msa_manifest` CSVs. Set `region_blocks` to a block layer
+with `GEOID20`, `UACE20`, and `POP20` fields and `cbsa_file` to the CBSA geometry
+layer covering the manifest's metro areas.
 
 ## Workflow inventory
 
@@ -634,4 +649,7 @@ python3 -m pip wheel . --no-deps
 
 ## AI Usage Acknowledgement
 
-We acknowledge the use of OpenAI Codex 5.6 Sol, under the direction and rigorous human reviewing of Franklin, in bringing loose scripts to this package and enabling the one-line call of analysis/plotting suites. The functionality of this package is from a handful of loose scripts in `oh-gerrymandering` repository. 
+We acknowledge the use of OpenAI Codex 6.1 Sol to help turn scripts from the
+`oh-gerrymandering` repository into this package and make its analysis and
+plotting suites runnable with a single command. Franklin directed and reviewed
+the work.

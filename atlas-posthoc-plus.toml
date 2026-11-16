@@ -1,4 +1,6 @@
 [project]
+# Point this at the Ohio analysis checkout containing the data, scripts, and
+# sampler outputs. Relative paths below are resolved against this root.
 root = "../oh-gerrymandering"
 
 [chains]
@@ -20,15 +22,18 @@ ousted_scale = "share"
 area_crs = "EPSG:26917"
 polsby_projected_crs = "EPSG:5070"
 
-# Baseline municipal arm.  For the PLACE comparison, use OH_pct20.json,
-# mode="PLACE", mapping_column="PLACE", the 2024 Place layer, a distinct
-# output_namespace such as "place", and inputs.block_metadata set to the
-# graph-generation checkpoint data/derived/cblocksMergeMultiPcts_OH.gpkg.
+# Baseline municipal arm. For a separate PLACE config, use matching PLACE
+# chains and IDs, set both graph paths to "data/graph/OH_pct20.json", set
+# mode = "PLACE", enable the two commented fields below, and set
+# output_namespace = "place". Set inputs.block_metadata to the graph-generation
+# checkpoint "data/derived/cblocksMergeMultiPcts_OH.gpkg".
 [municipality]
 mode = "COUSUB"
 graph_json = "data/graph/OHpct20.json"
 scalar_column = "MCD"
 output_namespace = "cousub"
+# mapping_column = "PLACE"
+# place_shapefile = "data/raw/tl_2024_39_place/tl_2024_39_place.shp"
 
 [inputs]
 graph_json = "data/graph/OHpct20.json"
@@ -45,6 +50,16 @@ public_plan_dir = "scripts/plans/public/combined_21_25"
 other_csv = "data/other_ensembles/OH.csv"
 other_geojson = "data/other_ensembles/OH.geojson"
 polsby_traces_json = "../atlas-posthoc/outputs/smoke_full_four_chains_37_40/diagnostics/polsby_popper_traces.json"
+
+# The regional-african-american-cvap workflow needs separate regional data.
+# Replace these example paths with your files. Both graphs must match the node
+# IDs and order used by chains.files.
+# cua_graph_json = "inputs/regions/cua-graph.json"
+# msa_graph_json = "inputs/regions/msa-graph.json"
+# cua_manifest = "inputs/regions/cua-manifest.csv"
+# msa_manifest = "inputs/regions/msa-manifest.csv"
+# region_blocks = "inputs/regions/blocks-with-urban-area-codes.gpkg"
+# cbsa_file = "inputs/regions/cbsa.shp"
 
 [inputs.municipal_trace_collections]
 "mcd_w=20, runs 37-40" = "../atlas-posthoc/outputs/smoke_full_four_chains_37_40/diagnostics/municipal_split_traces.json"
@@ -95,6 +110,7 @@ refresh_public_scores = false
 reuse_official_summary = true
 reuse_public_summary = true
 
+# These two workflows require municipality.mode = "PLACE".
 [workflow.municipal-place-partisanship]
 minimum_place_population = 25000
 label_count = 3
