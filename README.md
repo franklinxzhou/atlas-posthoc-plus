@@ -569,20 +569,19 @@ it with the same PLACE graph and chains:
 [workflow.municipal-city-partisan-context]
 cities = ["Cleveland", "Columbus", "Cincinnati", "Toledo", "Akron", "Dayton"]
 bins = 35
-output_mode = "both"
+output_mode = "signed"
 ```
 
 ```bash
 atlas-posthoc-plus run municipal-city-partisan-context
 ```
 
-`output_mode` accepts `"duo"` (the backward-compatible default), `"signed"`, or
-`"both"`. The duo output is `<city>-city-partisan-context.png`; the standalone
-signed-shift output is `<city>-city-partisan-context-signed.png`. Paper mode
-uses the same stems with vector PDF output. Both forms use the same signed-panel
-renderer, including the population-weighted ensemble statistic, cracking and
-packing shading, and official-plan reference lines. The workflow also writes
-CSV audit tables. See
+Each city produces one signed-shift panel at `<city>-city-partisan-context.png`,
+with the population-weighted ensemble statistic, cracking and packing shading,
+and official-plan reference lines. Paper mode uses the same stem with vector
+PDF output. `output_mode` defaults to `"signed"`; legacy `"duo"` and `"both"`
+settings also produce only this signed figure. The absolute-distance panel and
+its CSV statistics have been removed. The workflow also writes CSV audit tables. See
 [City-level district partisanship methodology](docs/municipal-city-partisan-context.md)
 for the formulas, population weighting, vote allocation, official-plan
 projection, interpretation, and output definitions.
@@ -635,7 +634,7 @@ layer covering the manifest's metro areas.
 | `municipal-tradeoff-weights` | `workflows.municipal.tradeoff_weights` | Multi-collection municipal tradeoff |
 | `municipal-tradeoff-weights-external` | `workflows.municipal.tradeoff_weights_external` | Multi-collection tradeoff with an external ensemble |
 | `municipal-place-partisanship` | `workflows.municipal.place_partisanship` | Place-specific ensemble quartiles and partisan fragmentation residuals |
-| `municipal-city-partisan-context` | `workflows.municipal.city_partisan_context` | Population-normalized city district-partisanship distances and signed shifts |
+| `municipal-city-partisan-context` | `workflows.municipal.city_partisan_context` | Population-normalized signed shifts in city district partisanship |
 | `inspect-external-ensemble` | `workflows.external.inspect_ensemble` | External-ensemble input inspection |
 | `summarize-external-ensemble` | `workflows.external.summarize_ensemble` | External-ensemble municipal summaries |
 

@@ -42,7 +42,7 @@ def test_city_partisan_context_workflow_is_in_municipal_suite() -> None:
     output_mode = next(
         binding for binding in workflow.bindings if binding.flag == "--output-mode"
     )
-    assert output_mode.default == "duo"
+    assert output_mode.default == "signed"
 
 
 def test_place_partisanship_workflow_requires_place_mode(tmp_path: Path) -> None:

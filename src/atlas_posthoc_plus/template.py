@@ -121,7 +121,7 @@ label_count = 3
 [workflow.municipal-city-partisan-context]
 cities = ["Cleveland", "Columbus", "Cincinnati", "Toledo", "Akron", "Dayton"]
 bins = 35
-output_mode = "duo"
+output_mode = "signed"
 
 [workflow.municipal-tradeoff-weights-external]
 include_other_ensemble = true

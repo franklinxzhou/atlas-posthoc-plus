@@ -8,8 +8,7 @@ from atlas_posthoc_plus.workflows.municipal.city_partisan_context import (
     CityContext,
     add_population_adjusted_votes,
     build_city_contexts,
-    normalized_context_metrics,
-    plot_city_context_duo,
+    normalized_context_shift,
     plot_city_context_outputs,
     plot_city_context_signed,
     read_block_context_rows,
@@ -40,27 +39,28 @@ def test_build_city_contexts_normalizes_population_within_city() -> None:
     assert city.weights.tolist() == pytest.approx([0.6, 0.4])
 
 
-def test_context_metrics_are_population_normalized_vote_share_changes() -> None:
+def test_context_shift_is_population_normalized_vote_share_change() -> None:
     weights = np.array([0.6, 0.4])
     centroid = np.array([0.6, 0.6])
     ensemble_vectors = np.array([[0.7, 0.5], [0.5, 0.7]])
 
-    distance, direction = normalized_context_metrics(
+    direction = normalized_context_shift(
         ensemble_vectors, centroid, weights
     )
-    official_distance, official_direction = normalized_context_metrics(
+    official_direction = normalized_context_shift(
         np.array([0.8, 0.7]), centroid, weights
     )
 
-    assert distance.tolist() == pytest.approx([0.1, 0.1])
     assert direction.tolist() == pytest.approx([0.02, -0.02])
-    assert official_distance.item() == pytest.approx(0.16)
     assert official_direction.item() == pytest.approx(0.16)
+    assert normalized_context_shift(
+        np.array([0.7, 0.5]), centroid, np.array([0.5, 0.5])
+    ).item() == pytest.approx(0)
 
 
 def test_context_metrics_reject_unnormalized_population_weights() -> None:
     with pytest.raises(ValueError, match="must sum to one"):
-        normalized_context_metrics(
+        normalized_context_shift(
             np.array([0.8, 0.7]),
             np.array([0.6, 0.6]),
             np.array([60, 40]),
@@ -161,18 +161,17 @@ def _example_context_results() -> tuple[
     return city, ensemble, official, centroids
 
 
-def test_summary_and_duo_plot_include_official_comparisons(tmp_path: Path) -> None:
-    city, ensemble, official, centroids = _example_context_results()
-    output = plot_city_context_duo(
-        city,
-        ensemble,
-        official,
-        tmp_path / "cleveland-city-partisan-context.png",
-        bins=5,
-    )
+def test_summary_includes_only_signed_official_comparisons() -> None:
+    _city, ensemble, official, centroids = _example_context_results()
 
-    assert output.is_file()
     assert len(ensemble) == 4
+    assert ensemble["signed_displacement"].mean() == pytest.approx(0)
+    assert official["signed_displacement"].tolist() == pytest.approx(
+        [0.105, -0.125, 0.025]
+    )
+    assert "normalized_distance" not in ensemble.columns
+    assert "normalized_distance" not in official.columns
+    assert "distance_ensemble_percentile" not in official.columns
     assert set(official["direction_interpretation"]) == {
         "packing",
         "cracking",
@@ -196,37 +195,40 @@ def test_standalone_signed_plot_is_created(tmp_path: Path) -> None:
     assert output.stat().st_size > 0
 
 
-@pytest.mark.parametrize(
-    ("output_mode", "expected_names"),
-    [
-        ("duo", {"cleveland-city-partisan-context.png"}),
-        ("signed", {"cleveland-city-partisan-context-signed.png"}),
-        (
-            "both",
-            {
-                "cleveland-city-partisan-context.png",
-                "cleveland-city-partisan-context-signed.png",
-            },
-        ),
-    ],
-)
-def test_city_context_output_modes_write_expected_figures(
+@pytest.mark.parametrize("output_mode", [None, "signed", "duo", "both"])
+def test_city_context_output_modes_write_one_signed_panel(
     tmp_path: Path,
-    output_mode: str,
-    expected_names: set[str],
+    monkeypatch: pytest.MonkeyPatch,
+    output_mode: str | None,
 ) -> None:
+    from atlas_posthoc_plus.workflows.municipal import city_partisan_context as workflow
+
     city, ensemble, official, _ = _example_context_results()
-    output_dir = tmp_path / output_mode
+    output_dir = tmp_path / str(output_mode)
+    expected_names = {"cleveland-city-partisan-context.png"}
+    save_figure = workflow.save_figure
+    figures = []
+
+    def capture_figure(figure, output):
+        figures.append(figure)
+        return save_figure(figure, output)
+
+    monkeypatch.setattr(workflow, "save_figure", capture_figure)
 
     outputs = plot_city_context_outputs(
         city,
         ensemble,
         official,
         output_dir,
-        output_mode=output_mode,
         bins=5,
+        **({"output_mode": output_mode} if output_mode is not None else {}),
     )
 
+    assert set(outputs) == {"signed"}
+    assert len(figures) == 1
+    [axis] = figures[0].axes
+    assert axis.get_xlabel() == "Signed shift from ensemble mean district context"
+    assert axis.get_xlim()[0] == pytest.approx(-axis.get_xlim()[1])
     assert {path.name for path in outputs.values()} == expected_names
     assert {path.name for path in output_dir.iterdir()} == expected_names
     assert all(path.is_file() for path in outputs.values())

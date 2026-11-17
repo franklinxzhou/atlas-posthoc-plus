@@ -2,9 +2,8 @@
 
 The `municipal-city-partisan-context` workflow compares how official and
 simulated congressional plans assign the residents of selected Census Places to
-districts with different Democratic two-party vote shares. It produces two
-statistics for each city and plan: a population-normalized absolute distance and
-a population-normalized signed shift.
+districts with different Democratic two-party vote shares. It produces a
+population-normalized signed shift for each city and plan.
 
 ## Notation
 
@@ -34,20 +33,6 @@ $$
 The ensemble mean is calculated separately for each city because cities overlap
 different graph units and have different within-unit population weights.
 
-## Population-normalized absolute distance
-
-For plan $p$, the absolute distance from the ensemble mean is
-
-$$
-L_p=\sum_{i=1}^{M}w_i\lvert x_{pi}-\bar{x}_i\rvert.
-$$
-
-This is the city-population-weighted average absolute difference between the
-plan's district Democratic vote shares and their ensemble averages. Because the
-weights sum to one, the statistic remains in vote-share units and does not grow
-mechanically with city population. The left histogram shows $L_p$ for the
-compliant ensemble plans and marks each official plan's value.
-
 ## Population-normalized signed shift
 
 The signed statistic is
@@ -61,9 +46,9 @@ Democratic districts than in the ensemble; the figure labels this direction
 `packing`. A negative value means that they are assigned to more Republican
 districts; the figure labels this direction `cracking`. The signed histogram
 shows $S_p$ for the compliant ensemble plans and marks each official plan's
-value. It appears as the right panel of the combined figure and can also be
-written as a standalone, city-titled figure with its own y-axis label and
-official-plan legend.
+value in a single title-free panel with its own y-axis label and official-plan
+legend. Because the population weights sum to one, the statistic remains in
+vote-share units and does not grow mechanically with city population.
 
 These labels describe the direction of the result. They do not by themselves
 establish intent, a general mechanism for treating municipalities, or the
@@ -120,7 +105,6 @@ assignments to differ within a graph unit.
 
 The official-plan CSV reports:
 
-- a midrank ensemble percentile for the absolute distance;
 - a midrank ensemble percentile for the signed shift; and
 - a one-sided directional tail probability for the observed sign.
 
@@ -145,12 +129,10 @@ with the inequality reversed for a negative signed shift.
 The workflow writes the following files under
 `<outputs.root>/<output_namespace>/municipal-city-partisan-context/`:
 
-- `<city>-city-partisan-context.png`: the two ensemble histograms with official
-  plan reference lines;
-- `<city>-city-partisan-context-signed.png`: the standalone signed-shift
+- `<city>-city-partisan-context.png`: the signed-shift
   histogram with symmetric cracking/packing directions and official-plan
   reference lines;
-- `city-partisan-context-ensemble.csv`: both statistics for every retained
+- `city-partisan-context-ensemble.csv`: the signed shift for every retained
   ensemble plan and city;
 - `city-partisan-context-official.csv`: official statistics, percentiles, tail
   probabilities, and the `packing`/`cracking` direction;
@@ -160,15 +142,16 @@ The workflow writes the following files under
   accounting; and
 - `municipal-geography.json`: the graph and Place-layer provenance.
 
-Choose which figure files are written with:
+The configuration defaults to:
 
 ```toml
 [workflow.municipal-city-partisan-context]
-output_mode = "duo" # "duo", "signed", or "both"
+output_mode = "signed"
 ```
 
-`"duo"` is the default and preserves the original behavior. `"signed"` writes
-only the standalone signed-shift figure, while `"both"` writes both figure
-forms. In paper mode, the same stems are written as vector PDFs through the
-package's normal figure-saving convention. The CSV and provenance outputs are
-written in every mode.
+Legacy `"duo"` and `"both"` values are accepted as aliases for `"signed"` and
+write only the single signed panel at the same canonical filename. The
+absolute-distance panel, `normalized_distance` CSV column, and
+`distance_ensemble_percentile` CSV column have been removed. In paper mode, the
+figure is written as a vector PDF through the package's normal figure-saving
+convention. The CSV and provenance outputs are always written.

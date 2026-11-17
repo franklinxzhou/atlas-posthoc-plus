@@ -4,7 +4,7 @@ For each configured Census Place, a plan is represented by one coordinate per
 overlapping graph unit: the Democratic vote share of the district containing
 that unit.  Coordinates are weighted by the fraction of city population in the
 unit.  The workflow compares every plan with the coordinate-wise ensemble mean
-using a normalized weighted L1 distance and a normalized signed displacement.
+using a population-normalized signed displacement.
 """
 
 from __future__ import annotations
@@ -39,7 +39,6 @@ from atlas_posthoc_plus.workflows.municipal.district_rank_compliant import (
     read_graph_nodes,
 )
 from atlas_posthoc_plus.workflows.municipal.geography import (
-    MunicipalGeography,
     _read_spatial_or_table,
     _resolve_column,
     add_municipality_arguments,
@@ -67,7 +66,8 @@ PLAN_LINESTYLES = {
     "Remedial ('22)": ":",
 }
 
-OUTPUT_MODES = ("duo", "signed", "both")
+# Accept old configuration values, but every mode now writes only the signed panel.
+OUTPUT_MODES = ("signed", "duo", "both")
 
 
 @dataclass(frozen=True)
@@ -545,14 +545,14 @@ def build_official_context_vectors(
     return output
 
 
-def normalized_context_metrics(
+def normalized_context_shift(
     vectors: np.ndarray,
     centroid: np.ndarray,
     weights: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Return normalized weighted absolute and signed deviations.
+) -> np.ndarray:
+    """Return the population-weighted signed deviation from the ensemble mean.
 
-    ``weights`` must sum to one, so both outputs remain in Democratic-share
+    ``weights`` must sum to one, so the result remains in Democratic-share
     units rather than population-times-share units.
     """
     vectors = np.asarray(vectors, dtype=float)
@@ -565,9 +565,7 @@ def normalized_context_metrics(
     if not np.isclose(weights.sum(), 1.0):
         raise ValueError("city population weights must sum to one")
     delta = vectors - centroid[None, :]
-    distance = np.sum(np.abs(delta) * weights[None, :], axis=1)
-    direction = np.sum(delta * weights[None, :], axis=1)
-    return distance, direction
+    return np.sum(delta * weights[None, :], axis=1)
 
 
 def _midrank_percentile(reference: np.ndarray, value: float) -> float:
@@ -590,13 +588,12 @@ def summarize_context_metrics(
     for city in contexts:
         matrix = np.asarray(ensemble_matrices[city.municipality], dtype=float)
         centroid = matrix.mean(axis=0)
-        ens_distance, ens_direction = normalized_context_metrics(
+        ens_direction = normalized_context_shift(
             matrix, centroid, city.weights
         )
         table = ensemble_plans.copy()
         table.insert(0, "municipality", city.municipality)
         table.insert(1, "place_name", city.place_name)
-        table["normalized_distance"] = ens_distance
         table["signed_displacement"] = ens_direction
         ensemble_tables.append(table)
 
@@ -616,10 +613,9 @@ def summarize_context_metrics(
 
         for label, plan_vectors in official_vectors.items():
             vector = np.asarray(plan_vectors[city.municipality], dtype=float)
-            distance, direction = normalized_context_metrics(
+            direction = normalized_context_shift(
                 vector, centroid, city.weights
             )
-            distance_value = float(distance[0])
             direction_value = float(direction[0])
             signed_percentile = _midrank_percentile(ens_direction, direction_value)
             if direction_value > 0:
@@ -642,15 +638,11 @@ def summarize_context_metrics(
                     "city_population": city.population,
                     "graph_unit_count": len(city.unit_ids),
                     "official_plan": label,
-                    "normalized_distance": distance_value,
-                    "distance_ensemble_percentile": _midrank_percentile(
-                        ens_distance, distance_value
-                    ),
                     "signed_displacement": direction_value,
                     "signed_ensemble_percentile": signed_percentile,
                     "directional_tail_probability": directional_tail,
                     "direction_interpretation": interpretation,
-                    "ensemble_plan_count": len(ens_distance),
+                    "ensemble_plan_count": len(ens_direction),
                 }
             )
 
@@ -702,7 +694,7 @@ def _plot_signed_context_panel(
     show_ylabel: bool,
     show_legend: bool,
 ) -> None:
-    """Draw the shared signed-displacement panel used by both figure forms."""
+    """Draw the signed-displacement histogram and official comparisons."""
     direction_limit = max(
         float(np.max(np.abs(ensemble_direction))),
         float(official["signed_displacement"].abs().max()),
@@ -751,62 +743,6 @@ def _plot_signed_context_panel(
         axis.legend(handles=handles, loc="center right")
 
 
-def plot_city_context_duo(
-    city: CityContext,
-    ensemble: pd.DataFrame,
-    official: pd.DataFrame,
-    output: str | Path,
-    *,
-    bins: int = 35,
-) -> Path:
-    """Plot unusualness and signed direction for one city."""
-    apply_figure_style()
-    ens_distance = ensemble["normalized_distance"].to_numpy(float)
-    ens_direction = ensemble["signed_displacement"].to_numpy(float)
-    official = official.copy()
-    n_plans = len(ens_distance)
-    weights = np.full(n_plans, 1 / n_plans)
-
-    figure, (left, right) = plt.subplots(1, 2, figsize=(9.2, 3.8), sharey=True)
-    left.hist(
-        ens_distance,
-        bins=bins,
-        weights=weights,
-        color="#B8C4CE",
-        edgecolor="white",
-        linewidth=0.5,
-    )
-    left.set_xlabel("Population-normalized distance from ensemble mean")
-    left.set_ylabel("Fraction of compliant ensemble plans")
-    left.xaxis.set_major_formatter(PercentFormatter(1.0, decimals=0))
-    left.yaxis.set_major_formatter(PercentFormatter(1.0, decimals=0))
-    left.margins(x=0.04)
-
-    _plot_signed_context_panel(
-        right,
-        ens_direction,
-        official,
-        bins=bins,
-        ensemble_weights=weights,
-        show_ylabel=False,
-        show_legend=False,
-    )
-
-    handles = _plot_official_plan_lines(left, official, "normalized_distance")
-    left.legend(handles=handles, loc="upper right")
-
-    figure.suptitle(
-        f"{city.place_name}: partisan district context under official and ensemble plans",
-        fontsize=10,
-    )
-    figure.subplots_adjust(top=0.86, bottom=0.16, wspace=0.12)
-    output = Path(output)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output = save_figure(figure, output)
-    plt.close(figure)
-    return output
-
-
 def plot_city_context_signed(
     city: CityContext,
     ensemble: pd.DataFrame,
@@ -830,15 +766,7 @@ def plot_city_context_signed(
         show_ylabel=True,
         show_legend=True,
     )
-    figure.text(
-        0.15,
-        0.97,
-        f"{city.place_name}: signed partisan district-context shift",
-        ha="left",
-        va="top",
-        fontsize=10,
-    )
-    figure.subplots_adjust(top=0.88, bottom=0.16, left=0.15, right=0.97)
+    figure.subplots_adjust(top=0.97, bottom=0.16, left=0.15, right=0.97)
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output = save_figure(figure, output)
@@ -852,34 +780,25 @@ def plot_city_context_outputs(
     official: pd.DataFrame,
     output_dir: str | Path,
     *,
-    output_mode: str = "duo",
+    output_mode: str = "signed",
     bins: int = 35,
 ) -> dict[str, Path]:
-    """Write the configured city-context figure form or forms."""
+    """Write one signed city-context figure, including for legacy modes."""
     if output_mode not in OUTPUT_MODES:
         raise ValueError(
             f"output_mode must be one of {', '.join(OUTPUT_MODES)}, found {output_mode!r}"
         )
     output_dir = Path(output_dir)
     stem = _slug(city.place_name)
-    outputs: dict[str, Path] = {}
-    if output_mode in {"duo", "both"}:
-        outputs["duo"] = plot_city_context_duo(
+    return {
+        "signed": plot_city_context_signed(
             city,
             ensemble,
             official,
             output_dir / f"{stem}-city-partisan-context.png",
             bins=bins,
         )
-    if output_mode in {"signed", "both"}:
-        outputs["signed"] = plot_city_context_signed(
-            city,
-            ensemble,
-            official,
-            output_dir / f"{stem}-city-partisan-context-signed.png",
-            bins=bins,
-        )
-    return outputs
+    }
 
 
 def parse_args() -> argparse.Namespace:
@@ -918,8 +837,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-mode",
         choices=OUTPUT_MODES,
-        default="duo",
-        help="Write the two-panel figure, standalone signed figure, or both",
+        default="signed",
+        help="Write only the signed panel; legacy duo/both values are aliases for signed",
     )
     add_municipality_arguments(parser)
     return parser.parse_args()

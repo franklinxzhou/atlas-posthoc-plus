@@ -844,7 +844,7 @@ _register(
             Binding(
                 "--output-mode",
                 "workflow.municipal-city-partisan-context.output_mode",
-                default="duo",
+                default="signed",
             ),
         ),
         required_municipality_mode="PLACE",
