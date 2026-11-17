@@ -43,6 +43,7 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from matplotlib.lines import Line2D
 from matplotlib.ticker import PercentFormatter
+from matplotlib.transforms import ScaledTranslation
 
 PLAN_STYLES = {
     # Purple/blue/orange remains distinguishable under common CVD modes;
@@ -300,6 +301,24 @@ def draw_ridgeline_panel(
     if show_proportionality:
         yline = np.linspace(ylim[0], ylim[1], 200)
         ax.plot(n_districts * yline, yline, zorder=0, **PROPORTIONALITY_STYLE)
+        # Rotate in data coordinates so the label follows the line even when
+        # the overview's aspect ratio changes with the number of zoom panels.
+        label_y = (ylim[0] + ylim[1]) / 2
+        ax.text(
+            n_districts * label_y,
+            label_y,
+            "PROPORTIONAL",
+            transform=ax.transData + ScaledTranslation(-7 / 72, 0, ax.figure.dpi_scale_trans),
+            rotation=np.degrees(np.arctan2(1, n_districts)),
+            transform_rotates_text=True,
+            rotation_mode="anchor",
+            ha="center",
+            va="center",
+            fontsize=_rc_font_size("legend.fontsize", 8.0),
+            fontweight="bold",
+            color="black",
+            zorder=6,
+        )
 
 
 def draw_public_multiplicity_panel(
