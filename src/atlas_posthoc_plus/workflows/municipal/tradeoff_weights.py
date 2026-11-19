@@ -813,6 +813,7 @@ def read_assignment_table(
     *,
     block_col: str | None = None,
     district_col: str | None = None,
+    strict: bool = False,
 ) -> tuple[dict[str, str], dict[str, Any]]:
     path = Path(path)
     df = read_spatial_or_table(path)
@@ -853,9 +854,22 @@ def read_assignment_table(
 
     out = df[[block_col_resolved, district_col_resolved]].copy()
     out[block_col_resolved] = out[block_col_resolved].map(normalize_geoid)
+    if strict:
+        labels = out[district_col_resolved].fillna("").astype(str).str.strip()
+        invalid = labels.ne("") & ~labels.str.fullmatch(r"[0-9]+(?:\.0+)?")
+        invalid_blocks = labels.ne("") & ~out[block_col_resolved].str.fullmatch(r"39[0-9]{13}")
+        if invalid.any() or invalid_blocks.any():
+            raise ValueError(f"Invalid block GEOID or district label in {path}")
+        out[district_col_resolved] = labels.str.replace(r"\.0+$", "", regex=True)
     out[district_col_resolved] = out[district_col_resolved].map(normalize_district)
 
     out = out[(out[block_col_resolved] != "") & out[district_col_resolved].notna()].copy()
+    if strict:
+        conflicts = out.groupby(block_col_resolved)[district_col_resolved].nunique().gt(1)
+        if conflicts.any():
+            raise ValueError(
+                f"Conflicting official assignments in {path}: {conflicts[conflicts].index[:5].tolist()}"
+            )
     out = out.drop_duplicates(subset=[block_col_resolved], keep="last")
 
     assignment = dict(zip(out[block_col_resolved], out[district_col_resolved]))
