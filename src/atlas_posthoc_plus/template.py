@@ -99,6 +99,15 @@ root = "outputs"
 # Set true for title-free Helvetica Neue figures saved as vector PDF.
 paper_mode = false
 
+# Standalone workflow. Use the Ohio 2020 P.L. 94-171 ZIP or its ohgeo2020.pl
+# member. Supply the block allocations for the graph in inputs.graph_json.
+[workflow.mct-diagnostics]
+census_geography_header = "inputs/census-2020/oh2020.pl.zip"
+township_lsadc = "44"  # Standard 2020 Ohio Census code. Use "47" for recoded township data.
+unit_definition = "whole"  # Or "county-component".
+split_block_policy = "reject"  # Or "allocated" for graph-specific population allocations.
+ensemble_unit_details = false
+
 [workflow.polsby-trace]
 metric = "average"
 

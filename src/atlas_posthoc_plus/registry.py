@@ -284,6 +284,48 @@ _register(
 
 _register(
     WorkflowSpec(
+        "mct-diagnostics",
+        "atlas_posthoc_plus.workflows.municipal.mct_diagnostics",
+        "municipal",
+        "Compare population splits across municipal corporations and townships.",
+        (
+            GRAPH,
+            CHAINS_ALT,
+            CHAIN_IDS,
+            CROSSWALK,
+            ENACTED_ALT,
+            OVERTURNED_ALT,
+            REMEDIAL_ALT,
+            N_DISTRICTS,
+            MAX_COUNTY,
+            MAX_MAPS,
+            Binding("--thin-step", "analysis.thin_step"),
+            Binding("--graph-pop-col", "columns.population"),
+            Binding(
+                "--census-geography-header", "workflow.mct-diagnostics.census_geography_header",
+                "path", required=True,
+            ),
+            Binding("--township-lsadc", "workflow.mct-diagnostics.township_lsadc"),
+            Binding("--unit-definition", "workflow.mct-diagnostics.unit_definition"),
+            Binding("--split-block-policy", "workflow.mct-diagnostics.split_block_policy"),
+            Binding("--expected-population", "workflow.mct-diagnostics.expected_population"),
+            Binding("--atlas-key-col", "workflow.mct-diagnostics.atlas_key_col"),
+            Binding("--graph-key-col", "workflow.mct-diagnostics.graph_key_col"),
+            Binding("--node-id-col", "workflow.mct-diagnostics.node_id_col"),
+            Binding("--county-col", "workflow.mct-diagnostics.county_col"),
+            Binding("--crosswalk-block-col", "workflow.mct-diagnostics.crosswalk_block_col"),
+            Binding("--crosswalk-key-col", "workflow.mct-diagnostics.crosswalk_key_col"),
+            Binding("--crosswalk-pop-col", "workflow.mct-diagnostics.crosswalk_pop_col"),
+            Binding("--assignment-block-col", "workflow.mct-diagnostics.assignment_block_col"),
+            Binding("--assignment-district-col", "workflow.mct-diagnostics.assignment_district_col"),
+            Binding("--ensemble-unit-details", "workflow.mct-diagnostics.ensemble_unit_details", "flag"),
+            Binding("--output-dir", "outputs.mct_dir", "path", default=OutputDefault("mct")),
+        ),
+    )
+)
+
+_register(
+    WorkflowSpec(
         "municipal-histograms-compliant",
         "atlas_posthoc_plus.workflows.municipal.compliant_histograms",
         "standard",
