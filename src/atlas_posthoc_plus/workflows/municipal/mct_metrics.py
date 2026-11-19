@@ -37,18 +37,22 @@ class SplitScorer:
         self.population = pieces["population"].to_numpy(dtype=float)
         self.represented_population = float(self.population.sum())
         self.assignment_positions = pieces["position"].to_numpy(dtype=np.intp)
-        self.unit_index = np.column_stack([
-            unit_ids.get_indexer(pieces[column]) for column in MEMBERSHIPS
-        ])
+        self.unit_index = np.column_stack(
+            [unit_ids.get_indexer(pieces[column]) for column in MEMBERSHIPS]
+        )
         self.has_membership = self.unit_index >= 0
         self.member_units = self.unit_index[self.has_membership]
         self.member_population = np.broadcast_to(
-            self.population[:, None], self.unit_index.shape,
+            self.population[:, None],
+            self.unit_index.shape,
         )[self.has_membership]
         self.kinds = units["kind"].to_numpy()
 
     def score(
-        self, assignment: np.ndarray, *, details: bool = False,
+        self,
+        assignment: np.ndarray,
+        *,
+        details: bool = False,
     ) -> tuple[dict[str, int | float | None], pd.DataFrame | None]:
         district_labels, district_codes = np.unique(assignment, return_inverse=True)
         districts = district_codes[self.assignment_positions]
@@ -103,12 +107,11 @@ class SplitScorer:
             unit_details = self.units.assign(
                 population=totals.sum(axis=1),
                 dominant_district=pd.array(
-                    district_labels[dominant], dtype="Int64",
+                    district_labels[dominant],
+                    dtype="Int64",
                 ),
                 represented_districts=n_represented_districts,
-                ousted_population=(
-                    totals.sum(axis=1) - totals[np.arange(self.n_units), dominant]
-                ),
+                ousted_population=(totals.sum(axis=1) - totals[np.arange(self.n_units), dominant]),
             )
             unit_details.loc[n_represented_districts == 0, "dominant_district"] = pd.NA
         return summary, unit_details

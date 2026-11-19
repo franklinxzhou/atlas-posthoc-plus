@@ -1007,6 +1007,13 @@ def compute_reference_summaries(
 # =============================================================================
 
 
+REFERENCE_STYLES = {
+    "Enacted ('25)": {"color": "#9467bd", "linestyle": "-", "linewidth": 2.2},
+    "Overturned ('21)": {"color": "#2ca02c", "linestyle": "--", "linewidth": 2.2},
+    "Remedial ('22)": {"color": "#d62728", "linestyle": "-.", "linewidth": 2.2},
+}
+
+
 def pooled_values(traces: list[MunicipalSplitTrace], *, metric: str) -> np.ndarray:
     vals = []
     for tr in traces:
@@ -1030,43 +1037,62 @@ def plot_histograms(
     )
     ousted_values = pooled_values(traces, metric=ousted_metric)
 
+    suffix = " share" if ousted_scale == "share" else ""
+    references = {
+        label: (summary.n_cut_municipalities, getattr(summary, ousted_metric))
+        for label, summary in reference_summaries.items()
+    }
+    plot_split_histograms(
+        cut_values=cut_values,
+        ousted_values=ousted_values,
+        references=references,
+        cut_label=f"Number of cut {municipality_name}s",
+        ousted_label=f"Ousted {municipality_name} population{suffix}",
+        plain_ousted_ticks=ousted_scale == "share",
+        title=title,
+        output_path=output_path,
+    )
+
+
+def plot_split_histograms(
+    *,
+    cut_values: np.ndarray,
+    ousted_values: np.ndarray,
+    references: dict[str, tuple[float, float]],
+    cut_label: str,
+    ousted_label: str,
+    title: str,
+    output_path: str | Path,
+    plain_ousted_ticks: bool = False,
+) -> None:
+    """Draw the paired population and cut distributions used by municipal workflows."""
     if cut_values.size == 0 or ousted_values.size == 0:
         raise RuntimeError("No compliant municipal split values to plot.")
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.8))
-
-    reference_styles = {
-        "Enacted ('25)": {"color": "#9467bd", "linestyle": "-",  "linewidth": 2.2},
-        "Overturned ('21)": {"color": "#2ca02c", "linestyle": "--", "linewidth": 2.2},
-        "Remedial ('22)": {"color": "#d62728", "linestyle": "-.", "linewidth": 2.2},
-    }
 
     cut_min = int(np.floor(cut_values.min()))
     cut_max = int(np.ceil(cut_values.max()))
     bins_cut = np.arange(cut_min - 0.5, cut_max + 1.5, 1.0)
 
     axes[0].hist(cut_values, bins=bins_cut, edgecolor="black", alpha=0.75)
-    axes[0].set_xlabel(f"Number of cut {municipality_name}s")
+    axes[0].set_xlabel(cut_label)
     axes[0].set_ylabel("Count")
     axes[0].set_title("Compliant ensemble distribution")
 
     axes[1].hist(ousted_values, bins=30, edgecolor="black", alpha=0.75)
+    axes[1].set_xlabel(ousted_label)
     axes[1].set_ylabel("Count")
     axes[1].set_title("Compliant ensemble distribution")
 
-    if ousted_scale == "share":
-        axes[1].set_xlabel(f"Ousted {municipality_name} population share")
+    if plain_ousted_ticks:
         axes[1].ticklabel_format(axis="x", style="plain")
-    else:
-        axes[1].set_xlabel(f"Ousted {municipality_name} population")
 
     handles = []
-
-    for label, summary in reference_summaries.items():
-        style = reference_styles[label]
-        axes[0].axvline(summary.n_cut_municipalities, zorder=10, alpha=0.95, **style)
-        val = summary.ousted_population_share if ousted_scale == "share" else summary.ousted_population
-        axes[1].axvline(val, zorder=10, alpha=0.95, **style)
+    for label, (cuts, ousted) in references.items():
+        style = REFERENCE_STYLES[label]
+        axes[0].axvline(cuts, zorder=10, alpha=0.95, **style)
+        axes[1].axvline(ousted, zorder=10, alpha=0.95, **style)
         handles.append(Line2D([0], [0], label=label, **style))
 
     for ax in axes:

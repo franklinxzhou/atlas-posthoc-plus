@@ -815,6 +815,7 @@ def read_assignment_table(
     district_col: str | None = None,
     strict: bool = False,
 ) -> tuple[dict[str, str], dict[str, Any]]:
+    """Read a block assignment file, with optional strict Ohio validation."""
     path = Path(path)
     df = read_spatial_or_table(path)
     if df.empty:
@@ -856,11 +857,14 @@ def read_assignment_table(
     out[block_col_resolved] = out[block_col_resolved].map(normalize_geoid)
     if strict:
         labels = out[district_col_resolved].fillna("").astype(str).str.strip()
-        invalid = labels.ne("") & ~labels.str.fullmatch(r"[0-9]+(?:\.0+)?")
+        numbers = labels.str.extract(
+            r"(?i)^(?:(?:district|cd)\s*)?([0-9]+)(?:\.0+)?$", expand=False,
+        )
+        invalid = labels.ne("") & numbers.isna()
         invalid_blocks = labels.ne("") & ~out[block_col_resolved].str.fullmatch(r"39[0-9]{13}")
         if invalid.any() or invalid_blocks.any():
             raise ValueError(f"Invalid block GEOID or district label in {path}")
-        out[district_col_resolved] = labels.str.replace(r"\.0+$", "", regex=True)
+        out[district_col_resolved] = numbers
     out[district_col_resolved] = out[district_col_resolved].map(normalize_district)
 
     out = out[(out[block_col_resolved] != "") & out[district_col_resolved].notna()].copy()

@@ -2,23 +2,39 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 import pickle
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from zipfile import ZipFile
 
-import geopandas as gpd
 import numpy as np
 import pandas as pd
-
-from atlas_posthoc_plus.workflows.municipal.geography import _resolve_dataset_path
 
 OHIO_POPULATION_2020 = 11_799_448
 POPULATION_TOLERANCE = 1e-5
 MEMBERSHIPS = ["municipal_corporation", "township"]
-_CACHE_SCHEMA = 1
+_CACHE_SCHEMA = 2
+# Zero-based positions in Figure 2-4 of the 2020 P.L. 94-171 documentation.
+_PL_FIELDS = {
+    0: "file_id",
+    1: "state_abbr",
+    2: "summary_level",
+    9: "GEOID",
+    12: "state_fips",
+    14: "county_fips",
+    17: "cousub_fips",
+    18: "COUSUBCC",
+    29: "place_fips",
+    30: "PLACECC",
+    87: "NAME",
+    88: "FUNCSTAT",
+    90: "population",
+    94: "LSADC",
+}
 
 
 @dataclass(frozen=True)
@@ -27,8 +43,6 @@ class GeographySettings:
     unit_definition: str = "whole"
     split_block_policy: str = "reject"
     expected_population: int = OHIO_POPULATION_2020
-    block_id_col: str = "GEOID20"
-    block_pop_col: str = "POP20"
     graph_key_col: str = "NAME"
     graph_pop_col: str = "POP20"
     crosswalk_block_col: str = "GEOID20"
@@ -45,12 +59,32 @@ class Membership:
     allocation_audit: dict
 
 
-def _read_attributes(path: Path) -> pd.DataFrame:
-    if path.suffix.lower() == ".csv":
-        return pd.read_csv(path, dtype=str, keep_default_na=False)
-    if path.suffix.lower() in {".parquet", ".pq"}:
-        return pd.read_parquet(path)
-    return gpd.read_file(path, ignore_geometry=True)
+def _read_census_header(path: Path) -> pd.DataFrame:
+    options = {
+        "sep": "|",
+        "header": None,
+        "dtype": str,
+        "keep_default_na": False,
+        "quoting": csv.QUOTE_NONE,
+        "usecols": list(_PL_FIELDS),
+    }
+    if path.suffix.lower() == ".zip":
+        with ZipFile(path) as archive:
+            members = [
+                name for name in archive.namelist() if Path(name).name.lower() == "ohgeo2020.pl"
+            ]
+            if len(members) != 1:
+                raise ValueError(f"Expected one ohgeo2020.pl member in {path}")
+            with archive.open(members[0]) as stream:
+                header = pd.read_csv(stream, **options)
+    else:
+        header = pd.read_csv(path, **options)
+    header = header.rename(columns=_PL_FIELDS)
+    if not (
+        header["file_id"].eq("PLST") & header["state_abbr"].eq("OH") & header["state_fips"].eq("39")
+    ).all():
+        raise ValueError(f"{path} is not an Ohio 2020 P.L. 94-171 geographic header")
+    return header
 
 
 def _column(table: pd.DataFrame, *names: str) -> pd.Series:
@@ -60,14 +94,12 @@ def _column(table: pd.DataFrame, *names: str) -> pd.Series:
     raise ValueError(f"Missing Census field. Expected one of {names}; found {list(table)}")
 
 
-def _codes(values: pd.Series, *, width: int, label: str, allow_empty: bool = False) -> pd.Series:
+def _codes(values: pd.Series, *, width: int, label: str) -> pd.Series:
     codes = values.fillna("").astype(str).str.strip().str.replace(r"\.0$", "", regex=True)
     valid = codes.str.fullmatch(rf"[0-9]{{1,{width}}}")
-    if allow_empty:
-        valid |= codes.eq("")
     if not valid.all():
         raise ValueError(f"Invalid {label}: {codes[~valid].head().tolist()}")
-    return codes.where(codes.eq(""), codes.str.zfill(width))
+    return codes.str.zfill(width)
 
 
 def ohio_block_ids(values: pd.Series) -> pd.Series:
@@ -91,7 +123,10 @@ def _unique_index(table: pd.DataFrame, column: str, label: str) -> pd.DataFrame:
 
 
 def classify_geography(
-    table: pd.DataFrame, source: str, *, township_lsadc: str,
+    table: pd.DataFrame,
+    source: str,
+    *,
+    township_lsadc: str,
 ) -> pd.DataFrame:
     """Use LSADC and flag or resolve conflicts visible in source metadata."""
     width = 7 if source == "PLACE" else 10
@@ -127,50 +162,73 @@ def classify_geography(
         review.loc[township_class & ~selected_code] = "Township class has a different LSADC"
         review.loc[selected_code & ~township_class] = "Selected LSADC has a non-township class"
 
-    reason.loc[kind.ne("")] = "included"
-    return _unique_index(pd.DataFrame({
-        "geoid": geoid, "source": source, "name": name, "kind": kind,
-        "classfp": classfp, "lsadc": lsadc, "funcstat": funcstat,
-        "accepted": kind.ne(""), "decision": reason, "review": review,
-    }), "geoid", source)
+    accepted = kind.ne("")
+    review.loc[accepted & ~funcstat.isin(["A", "B", "C", "G"]) & review.eq("")] = (
+        "Eligible LSADC has an unexpected functional status"
+    )
+    reason.loc[accepted] = "included"
+    return _unique_index(
+        pd.DataFrame(
+            {
+                "geoid": geoid,
+                "source": source,
+                "name": name,
+                "kind": kind,
+                "classfp": classfp,
+                "lsadc": lsadc,
+                "funcstat": funcstat,
+                "accepted": accepted,
+                "decision": reason,
+                "review": review,
+            }
+        ),
+        "geoid",
+        source,
+    )
 
 
-def _read_census_baf(path: Path, source: str, blocks: pd.Index) -> pd.Series:
-    table = pd.read_csv(path, sep="|", dtype=str, keep_default_na=False)
-    block = ohio_block_ids(_column(table, "BLOCKID"))
+def _block_geoids(blocks: pd.DataFrame, source: str) -> pd.Series:
     if source == "PLACE":
-        code = _codes(_column(table, "PLACEFP"), width=5, label="PLACEFP", allow_empty=True)
-        geoid = ("39" + code).where(~code.isin(["", "00000"]), "")
-    else:
-        code = _codes(_column(table, "COUSUBFP"), width=5, label="COUSUBFP", allow_empty=True)
-        county = _codes(_column(table, "COUNTYFP"), width=3, label="COUNTYFP", allow_empty=True)
-        if (county.ne("") & county.ne(block.str[2:5])).any() or (
-            county.eq("") & code.ne("")
-        ).any():
-            raise ValueError("COUSUB BAF county does not match its block GEOID")
-        # 00000 can be a Census record for an undefined county subdivision.
-        geoid = (block.str[:5] + code).where(code.ne(""), "")
-    rows = _unique_index(pd.DataFrame({"block": block, "geoid": geoid}), "block", source)
-    if len(blocks.difference(rows.index)) or len(rows.index.difference(blocks)):
-        raise ValueError(f"{source} Census BAF and population table have different block universes")
-    return rows["geoid"].reindex(blocks)
+        code = _codes(blocks["place_fips"], width=5, label="PLACE")
+        return ("39" + code).where(code.ne("99999"), "")
+
+    county = _codes(blocks["county_fips"], width=3, label="COUNTY")
+    if (county != blocks.index.to_series().str[2:5]).any():
+        raise ValueError("Census block county does not match its GEOID")
+    code = _codes(blocks["cousub_fips"], width=5, label="COUSUB")
+    return "39" + county + code
 
 
 def _graph_pieces(
-    blocks: pd.DataFrame, graph: pd.DataFrame, crosswalk_path: Path, settings: GeographySettings,
+    blocks: pd.DataFrame,
+    graph: pd.DataFrame,
+    crosswalk_path: Path,
+    settings: GeographySettings,
 ) -> tuple[pd.DataFrame, dict]:
     graph_key = graph[settings.graph_key_col].astype("string").fillna("").str.strip()
     graph_pop = _population(graph[settings.graph_pop_col], label="Graph population")
-    nodes = _unique_index(pd.DataFrame({
-        "key": graph_key, "position": np.arange(len(graph)), "population": graph_pop,
-    }), "key", "graph crosswalk key")
+    nodes = _unique_index(
+        pd.DataFrame(
+            {
+                "key": graph_key,
+                "position": np.arange(len(graph)),
+                "population": graph_pop,
+            }
+        ),
+        "key",
+        "graph crosswalk key",
+    )
 
     crosswalk = pd.read_csv(crosswalk_path, dtype=str, keep_default_na=False)
-    rows = pd.DataFrame({
-        "block": ohio_block_ids(crosswalk[settings.crosswalk_block_col]),
-        "key": crosswalk[settings.crosswalk_key_col].str.strip(),
-        "population": _population(crosswalk[settings.crosswalk_pop_col], label="Crosswalk population"),
-    })
+    rows = pd.DataFrame(
+        {
+            "block": ohio_block_ids(crosswalk[settings.crosswalk_block_col]),
+            "key": crosswalk[settings.crosswalk_key_col].str.strip(),
+            "population": _population(
+                crosswalk[settings.crosswalk_pop_col], label="Crosswalk population"
+            ),
+        }
+    )
     rows = rows.loc[rows["population"].gt(0)].copy()
     if rows.duplicated(["block", "key"]).any():
         raise ValueError("Duplicate positive block/graph-node crosswalk matches")
@@ -179,8 +237,13 @@ def _graph_pieces(
         if missing:
             raise ValueError(f"Crosswalk references unknown {column}: {missing[:5]}")
 
-    allocation = rows.groupby("block")["population"].agg(["sum", "size"]).reindex(
-        blocks.index, fill_value=0,
+    allocation = (
+        rows.groupby("block")["population"]
+        .agg(["sum", "size"])
+        .reindex(
+            blocks.index,
+            fill_value=0,
+        )
     )
     if (blocks["population"].gt(0) & allocation["size"].eq(0)).any():
         raise ValueError("Crosswalk is missing positive-population blocks")
@@ -193,11 +256,12 @@ def _graph_pieces(
         )
 
     # Restore exact per-block mass within the input roundoff tolerance.
-    rows["population"] *= (
-        rows["block"].map(blocks["population"]) / rows["block"].map(allocation["sum"])
+    rows["population"] *= rows["block"].map(blocks["population"]) / rows["block"].map(
+        allocation["sum"]
     )
     _check_population(
-        nodes["population"], rows.groupby("key")["population"].sum().reindex(nodes.index, fill_value=0),
+        nodes["population"],
+        rows.groupby("key")["population"].sum().reindex(nodes.index, fill_value=0),
         "Graph-node",
     )
     rows["position"] = rows["key"].map(nodes["position"])
@@ -220,38 +284,50 @@ def _check_population(expected: pd.Series, actual: pd.Series, label: str) -> Non
 
 
 def _build_membership(
-    blocks_path: Path, place_path: Path, cousub_path: Path, place_baf: Path, cousub_baf: Path,
-    crosswalk_path: Path, graph: pd.DataFrame, settings: GeographySettings,
+    census_path: Path,
+    crosswalk_path: Path,
+    graph: pd.DataFrame,
+    settings: GeographySettings,
 ) -> Membership:
-    table = _read_attributes(blocks_path)
-    blocks = _unique_index(pd.DataFrame({
-        "block": ohio_block_ids(table[settings.block_id_col]),
-        "population": _population(table[settings.block_pop_col], label="Block population"),
-    }), "block", "Census block")
+    header = _read_census_header(census_path)
+    level = header["summary_level"]
+    census_blocks = header.loc[level.eq("750")].copy()
+    census_blocks["GEOID"] = ohio_block_ids(census_blocks["GEOID"])
+    census_blocks = _unique_index(census_blocks, "GEOID", "Census block")
+    population = _population(census_blocks["population"], label="Block population")
+    blocks = population.to_frame()
+    state = _population(header.loc[level.eq("040"), "population"], label="State population")
     if (
         settings.expected_population <= 0
-        or np.any(blocks["population"] % 1)
-        or blocks["population"].sum() != settings.expected_population
+        or len(state) != 1
+        or state.iloc[0] != settings.expected_population
+        or np.any(population % 1)
+        or population.sum() != settings.expected_population
     ):
         raise ValueError(
-            f"Expected {settings.expected_population:,} residents in integer block counts; "
-            f"found {blocks['population'].sum():,.6f}"
+            f"Expected {settings.expected_population:,} residents in the Census state row and "
+            f"integer block counts; found {population.sum():,.6f} residents in block counts"
         )
     county = blocks.index.to_series().str[:5]
     audits, unit_tables = [], []
-    for source, path, baf, column in (
-        ("PLACE", place_path, place_baf, MEMBERSHIPS[0]),
-        ("COUSUB", cousub_path, cousub_baf, MEMBERSHIPS[1]),
+    for source, summary_level, column in (
+        ("PLACE", "160", MEMBERSHIPS[0]),
+        ("COUSUB", "060", MEMBERSHIPS[1]),
     ):
-        records = classify_geography(
-            _read_attributes(path), source, township_lsadc=settings.township_lsadc,
-        )
-        geoids = _read_census_baf(baf, source, blocks.index)
+        entities = header.loc[level.eq(summary_level)]
+        records = classify_geography(entities, source, township_lsadc=settings.township_lsadc)
+        geoids = _block_geoids(census_blocks, source)
         missing = sorted(set(geoids).difference(records.index, {""}))
         if missing:
-            raise ValueError(f"{source} BAF references unknown Census GEOIDs: {missing[:5]}")
-        totals = blocks["population"].groupby(geoids).sum()
-        records["population"] = totals.reindex(records.index, fill_value=0)
+            raise ValueError(f"Blocks reference unknown {source} Census GEOIDs: {missing[:5]}")
+        has_geoid = geoids.ne("")
+        block_classes = census_blocks.loc[has_geoid, f"{source}CC"]
+        if not geoids.loc[has_geoid].map(records["classfp"]).eq(block_classes).all():
+            raise ValueError(f"{source} class codes disagree between blocks and geography records")
+        totals = population.groupby(geoids).sum().reindex(records.index, fill_value=0)
+        published = _population(entities["population"], label=f"{source} population")
+        _check_population(published.set_axis(records.index), totals, source)
+        records["population"] = totals
         audits.append(records.reset_index())
         eligible = records.loc[records["accepted"]]
         if eligible.empty:
@@ -264,9 +340,17 @@ def _build_membership(
         if source == "PLACE" and settings.unit_definition == "county-component":
             unit_id += ":" + county
         blocks[column] = unit_id.where(accepted, "")
-        components = pd.DataFrame({
-            "unit_id": unit_id[accepted], "geoid": geoids[accepted], "county_geoid": county[accepted],
-        }).drop_duplicates()
+        components = (
+            pd.DataFrame(
+                {
+                    "unit_id": unit_id[accepted],
+                    "geoid": geoids[accepted],
+                    "county_geoid": county[accepted],
+                }
+            )
+            .drop_duplicates()
+            .sort_values("county_geoid")
+        )
         units = components.groupby(["unit_id", "geoid"], as_index=False).agg(
             county_geoids=("county_geoid", "|".join),
         )
@@ -274,39 +358,34 @@ def _build_membership(
 
     pieces, allocation_audit = _graph_pieces(blocks, graph, crosswalk_path, settings)
     return Membership(
-        blocks, pieces, pd.concat(unit_tables, ignore_index=True).sort_values("unit_id"),
-        pd.concat(audits, ignore_index=True), allocation_audit,
+        blocks,
+        pieces,
+        pd.concat(unit_tables, ignore_index=True).sort_values("unit_id"),
+        pd.concat(audits, ignore_index=True),
+        allocation_audit,
     )
 
 
-def _source_signature(path: Path) -> list[dict]:
-    files = [path]
-    if path.suffix.lower() == ".shp":
-        files.extend(
-            sorted(p for p in path.parent.glob(f"{path.stem}.*") if p != path and p.is_file())
-        )
-    signatures = []
-    for file in files:
-        stat = file.stat()
-        signatures.append({"file": str(file.resolve()), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns})
-    return signatures
+def _source_signature(path: Path) -> dict:
+    info = path.stat()
+    return {"file": str(path.resolve()), "size": info.st_size, "mtime_ns": info.st_mtime_ns}
 
 
 def load_membership(
-    *, graph_path: Path, graph: pd.DataFrame, blocks_path: Path, place_path: Path,
-    cousub_path: Path, place_baf: Path, cousub_baf: Path, crosswalk_path: Path,
-    cache_dir: Path, settings: GeographySettings,
+    *,
+    graph_path: Path,
+    graph: pd.DataFrame,
+    census_path: Path,
+    crosswalk_path: Path,
+    cache_dir: Path,
+    settings: GeographySettings,
 ) -> tuple[Membership, dict]:
     """Reuse validated membership when all source file signatures and settings match."""
-    datasets = {
-        "blocks": _resolve_dataset_path(blocks_path),
-        "place": _resolve_dataset_path(place_path),
-        "cousub": _resolve_dataset_path(cousub_path),
-        "place_baf": place_baf, "cousub_baf": cousub_baf, "crosswalk": crosswalk_path,
-    }
-    sources = {"graph": graph_path, **datasets}
+    sources = {"graph": graph_path, "census_header": census_path, "crosswalk": crosswalk_path}
     metadata = {
-        "schema": _CACHE_SCHEMA, "census_vintage": 2020, "settings": asdict(settings),
+        "schema": _CACHE_SCHEMA,
+        "census_vintage": 2020,
+        "settings": asdict(settings),
         "sources": {name: _source_signature(path) for name, path in sources.items()},
     }
     digest = hashlib.sha256(json.dumps(metadata, sort_keys=True).encode()).hexdigest()
@@ -320,7 +399,7 @@ def load_membership(
         except (OSError, pickle.UnpicklingError, EOFError, AttributeError, ImportError):
             pass
 
-    membership = _build_membership(*datasets.values(), graph, settings)
+    membership = _build_membership(census_path, crosswalk_path, graph, settings)
     if metadata["sources"] != {name: _source_signature(path) for name, path in sources.items()}:
         raise ValueError("A membership input changed during preparation; rerun with stable inputs")
     cache_dir.mkdir(parents=True, exist_ok=True)
