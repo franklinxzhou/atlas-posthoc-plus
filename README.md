@@ -678,6 +678,7 @@ layer covering the manifest's metro areas.
 |---|---|---|
 | `figure-compositor` | `workflows.compositor` | Vector-preserving multi-figure PDF composition |
 | `build-crosswalk` | `workflows.setup.crosswalk` | Block-to-precinct crosswalk |
+| `mct-diagnostics` | `workflows.municipal.mct_diagnostics` | [Population splits across municipal corporations and townships](docs/municipal-corporations-and-townships.md) |
 | `vote-comparison` | `workflows.standard.vote_comparison` | Ordered vote-share comparison |
 | `vote-comparison-adjusted` | `workflows.standard.vote_comparison_adjusted` | Ordered vote-share comparison |
 | `municipal-histograms-compliant` | `workflows.municipal.compliant_histograms` | Compliant traces and reference histograms |

@@ -96,6 +96,13 @@ root = "../atlas-posthoc-plus/outputs"
 # Set true for title-free Helvetica Neue figures saved as vector PDF.
 paper_mode = false
 
+# Optional standalone diagnostic using the original 2020 Ohio Census archive.
+[workflow.mct-diagnostics]
+census_geography_header = "data/raw/oh2020.pl.zip"
+township_lsadc = "44"
+unit_definition = "whole"
+split_block_policy = "reject"
+
 [workflow.polsby-trace]
 metric = "average"
 
