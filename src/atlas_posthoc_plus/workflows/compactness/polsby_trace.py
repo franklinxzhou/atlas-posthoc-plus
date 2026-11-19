@@ -36,6 +36,7 @@ atlas-posthoc-plus run polsby-trace \
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +57,7 @@ from atlas_posthoc.observables.compactness import extract_ordered_compactness_fr
 from atlas_posthoc.observables.polsby_popper import make_polsby_popper_traces
 from atlas_posthoc_plus.io.atlas_records import iter_records
 from atlas_posthoc_plus.io.chain_sweep import configured_sweep, iter_sweep_records
+from atlas_posthoc_plus.workflows.compactness.polsby_histogram import STAT_TO_KEY
 
 
 PLAN_STYLES = {
@@ -362,6 +364,7 @@ def parse_args() -> argparse.Namespace:
         default="outputs/polsby_popper_traces_37_40/oh_congressional_average_polsby_popper_trace_with_refs.png",
     )
     p.add_argument("--title", default=None)
+    p.add_argument("--traces-output", type=Path, help="Write trace scores as JSON for the histogram.")
     p.add_argument("--y-min", type=float, default=None)
     p.add_argument("--y-max", type=float, default=None)
 
@@ -499,6 +502,15 @@ def main() -> None:
         output_frequency=args.output_frequency * args.thin_step,
         start_at_first_saved_step=args.start_at_first_saved_step,
     )
+
+    if args.traces_output is not None:
+        records = [trace.to_dict() for trace in traces]
+        for record in records:
+            for key in set(STAT_TO_KEY.values()):
+                record[key] = [value if np.isfinite(value) else None for value in record[key]]
+        args.traces_output.parent.mkdir(parents=True, exist_ok=True)
+        args.traces_output.write_text(json.dumps(records, indent=2, allow_nan=False) + "\n")
+        print(f"Wrote histogram trace input to {args.traces_output}")
 
 
 if __name__ == "__main__":

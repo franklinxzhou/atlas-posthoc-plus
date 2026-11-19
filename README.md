@@ -49,7 +49,9 @@ src/
         │   ├── cut_edges.py
         │   ├── official_polsby.py
         │   ├── polsby_histogram.py
-        │   └── polsby_trace.py
+        │   ├── polsby_trace.py
+        │   ├── reock.py
+        │   └── reock_histogram.py
         ├── demographics/
         │   └── ranked_vote_cvap.py
         ├── elections/
@@ -330,7 +332,7 @@ Available suites:
   multi-ensemble marginal plots, public-plan comparison, and Place/city
   partisanship diagnostics.
 - `external`: inspect and summarize the optional outside ensemble.
-- `full`: `standard`, then `municipal`, then the zoomed responsiveness figure.
+- `full`: `standard`, both compactness histograms, `municipal`, and the zoomed responsiveness figure.
 
 Each non-dry suite writes `suite-<name>-manifest.json` under `outputs.root`. The
 manifest records every command, return code, run time, configuration path, and
@@ -357,11 +359,11 @@ The configured suites connect multi-stage analyses automatically:
 - `municipal-histograms-compliant` creates the compliant municipal trace JSON
   and reference-plan summary JSON used by the derived municipal workflows.
 - `official-polsby` creates the reference CSV used by `polsby-trace`.
-- `polsby-histogram` consumes `atlas-posthoc`'s
-  `diagnostics/polsby_popper_traces.json` and can overlay the `official-polsby`
-  summary CSV. If `inputs.public_plan_dir`, `inputs.graph_json`, and
-  `inputs.crosswalk_csv` are configured, it also computes and caches public-plan
-  Polsby-Popper scores.
+- `polsby-trace` exports the plan scores used by `polsby-histogram`. The
+  histogram can overlay the `official-polsby` summary CSV and compute and cache
+  public-plan scores when the plan directory, graph, and crosswalk are configured.
+- `reock-histogram` uses the shared chain sweep and the polygon layer for the
+  graph nodes. It can score reference plans from the configured block assignments.
 - `responsiveness` creates the CSV files used by `responsiveness-zoom`. To add
   public plans to the zoomed figure, set
   `workflow.responsiveness.overlay_public_plans = true`. The upstream workflow
@@ -441,11 +443,12 @@ ensemble_label = "Place-5 ensemble"
 
 ## Polsby-Popper histogram
 
-To plot an ensemble compactness histogram from `atlas-posthoc` output:
+Run `polsby-trace` to generate `polsby/polsby-popper-traces.json` under
+`outputs.root`, or configure a precomputed `atlas-posthoc` trace JSON:
 
 ```toml
 [inputs]
-polsby_traces_json = "atlas-posthoc-output/diagnostics/polsby_popper_traces.json"
+# polsby_traces_json = "atlas-posthoc-output/diagnostics/polsby_popper_traces.json"
 public_plan_dir = "inputs/plans/public"         # optional, for public overlays
 graph_json = "inputs/graph.json"                # needed to score public plans
 crosswalk_csv = "inputs/block_to_precinct.csv"  # needed to score public plans
@@ -468,6 +471,8 @@ atlas-posthoc-plus run polsby-histogram
 
 The official overlay can use either a legacy `label,score` CSV or the
 `official-polsby` summary CSV with `plan,average,minimum,maximum` columns.
+If you customize `outputs.polsby_traces_json` for the trace workflow, point
+`inputs.polsby_traces_json` at that path for the histogram.
 Public submitted plans are discovered from `inputs.public_plan_dir`, mapped to
 graph nodes through the block-to-precinct crosswalk, scored with
 `atlas-posthoc`'s graph compactness audit, and cached at
@@ -475,6 +480,67 @@ graph nodes through the block-to-precinct crosswalk, scored with
 reuses that cache unless `refresh_public_scores = true`. Set
 `public_score_method = "blocks"` only when you want slower block-geometry
 scoring.
+
+## Reock histogram
+
+`reock-histogram` reads `chains.files` and `inputs.graph_json`. Set
+`inputs.precincts` to the polygon layer that represents the graph's nodes.
+`columns.precinct_name` selects the geometry key in that layer and
+`graph_geometry_key` selects the matching graph column. Both default to `NAME`.
+Every graph node needs a unique key and matching geometry. Multiple features
+with the same geometry key are dissolved before scoring. Reock uses a projected
+CRS for both area and distance. Set `analysis.reock_projected_crs` to override
+the default `EPSG:5070`.
+
+```toml
+[workflow.reock-histogram]
+stat = "average"  # average, minimum, or maximum across districts
+burnin = 0       # first proposal to include
+thin_step = 1
+bins = 40
+```
+
+```bash
+atlas-posthoc-plus run reock-histogram
+```
+
+The figure is saved to `reock/reock-histogram.png` under `outputs.root`.
+The workflow scores any configured `[plans]` assignments from
+`inputs.block_shapefile`. To score submitted block plans, set
+`inputs.reock_public_plan_dir`. To use precomputed Reock overlays, set
+`inputs.public_reock_scores_csv` and/or `inputs.official_reock_scores_csv`.
+These CSVs use the same schemas as the Polsby-Popper overlays.
+
+### Comparison with Greg's scripts
+
+- **Polsby-Popper.** Both implementations use `4πA/P²`. Greg's graph-style
+  calculation sums unit areas, adds each exterior border once, and adds
+  each cut border to both districts. The package's graph-based public scoring
+  applies the same rule after mapping block plans to graph nodes through a
+  weighted crosswalk. It skips edges touching unmatched nodes. The ensemble
+  trace converts the sampler's stored `P²/A` to Polsby-Popper. The official
+  and optional block-based public calculations measure area and perimeter after
+  dissolving projected block polygons, so agreement with graph scores depends
+  on matching assignments, geometry, and measurement conventions.
+- **Greg's border reader.** A descending FID pair `(a, b)` is stored as
+  `(b, b)` in `getFidPairToData`. The scoring loop treats that pair as internal
+  and omits the boundary. On a two-district fixture, correctly ordered borders
+  matched the dissolved scores. Reversing one cut edge changed the first
+  district's score from 0.698 to 1.005 in Greg's implementation.
+- **Joining and dissolving geometry.** Greg maps GEOIDs to feature IDs, fills
+  a plan array by FID, and then dissolves the cluster layer by district in its
+  source CRS. Correct alignment depends on the FIDs matching shapefile row
+  positions. The package's block workflow joins assignments by normalized
+  GEOID, reports the match rate, checks the district count, and dissolves
+  after projecting. The Reock ensemble workflow joins the unit layer to graph
+  nodes by key and requires geometry for every node.
+- **Reock.** The new workflow uses Greg's ratio of dissolved district area
+  to the area of the minimum enclosing circle of its convex hull. Shapely/GEOS
+  supplies the circle radius, and the area is calculated as `πr²`. The scores
+  matched Greg's circle helper on a rectangle, a triangle, a multipart district,
+  and a polygon with a hole. Greg's `pairDownReock` keeps plans only when every
+  district clears a threshold. The histogram includes all sampled plans after
+  thinning and burn-in, preserving the low-score tail.
 
 ## Comparing arbitrary municipal trace collections
 
@@ -621,6 +687,7 @@ layer covering the manifest's metro areas.
 | `official-polsby` | `workflows.compactness.official_polsby` | Official-plan compactness CSVs |
 | `polsby-trace` | `workflows.compactness.polsby_trace` | Compactness trace with references |
 | `polsby-histogram` | `workflows.compactness.polsby_histogram` | Compactness histogram with public/official overlays |
+| `reock-histogram` | `workflows.compactness.reock_histogram` | Reock histogram with public/official overlays |
 | `ranked-vote-cvap` | `workflows.demographics.ranked_vote_cvap` | Vote/CVAP ranked comparison |
 | `regional-african-american-cvap` | `workflows.demographics.regional_black_cvap` | District-level CUA/MSA African American-CVAP location quotients |
 | `responsiveness` | `workflows.elections.responsiveness` | Multi-election responsiveness |
