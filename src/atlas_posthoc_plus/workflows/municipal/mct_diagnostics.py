@@ -9,12 +9,14 @@ from itertools import islice
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import matplotlib
 import numpy as np
 import pandas as pd
 from atlas_posthoc.io.atlas_reader import canonicalize_unit_key, infer_chain_id
 
 from atlas_posthoc_plus.io.atlas_records import iter_records
 from atlas_posthoc_plus.io.graph import read_graph_frame
+from atlas_posthoc_plus.paper import apply_paper_style, save_figure
 from atlas_posthoc_plus.workflows.municipal.compliant_histograms import (
     county_compliance_summary_for_assignment,
 )
@@ -32,6 +34,7 @@ OFFICIAL_PLANS = (
     ("2025 enacted", "enacted"),
 )
 PRIMARY_METRIC = "deduplicated_ousted_population"
+NAIVE_METRIC = "naive_ousted_population"
 
 
 def _validate_districts(districts: np.ndarray, count: int) -> None:
@@ -155,6 +158,49 @@ def _write_json(path: Path, value: object) -> None:
     path.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n", encoding="utf-8")
 
 
+def _plot(path: Path, plans: pd.DataFrame, references: pd.DataFrame) -> None:
+    from matplotlib import pyplot as plt
+    from matplotlib.ticker import MaxNLocator, StrMethodFormatter
+
+    apply_paper_style()
+    figure, (histogram, comparison) = plt.subplots(1, 2, figsize=(11, 4.2), layout="constrained")
+    units = "Municipal Corporations and Townships"
+    deduplicated_label = f"Deduplicated ousted population\n{units}"
+    naive_label = f"Conventional summed ousted population\n{units}"
+    histogram.hist(plans[PRIMARY_METRIC], bins=30, color="#4b7194")
+    histogram.set(xlabel=deduplicated_label, ylabel="Compliant ensemble plans")
+
+    plotted_columns = [PRIMARY_METRIC, NAIVE_METRIC]
+    limits = pd.concat([plans[plotted_columns], references[plotted_columns]]).to_numpy()
+    low, high = float(limits.min()), float(limits.max())
+    comparison.axline((low, low), slope=1, color="0.60", linewidth=0.9, linestyle="--", zorder=0)
+    comparison.scatter(plans[NAIVE_METRIC], plans[PRIMARY_METRIC], s=9, color="#4b7194", alpha=0.3)
+    margin = max((high - low) * 0.06, 1)
+    comparison.set(
+        xlabel=naive_label, ylabel=deduplicated_label,
+        xlim=(max(0, low - margin), high + margin), ylim=(max(0, low - margin), high + margin),
+        aspect="equal",
+    )
+    for i, (ref, color, marker) in enumerate(zip(
+        references.itertuples(), ("#944c1f", "#91396e", "#297561"), ("o", "s", "D"),
+    )):
+        height = 0.98 - 0.09 * i
+        histogram.axvline(
+            getattr(ref, PRIMARY_METRIC), ymin=height - 0.07, ymax=height,
+            color=color, linewidth=2, label=ref.plan,
+        )
+        comparison.scatter(
+            getattr(ref, NAIVE_METRIC), getattr(ref, PRIMARY_METRIC),
+            s=31, marker=marker, color=color, edgecolor="white", linewidth=0.5, zorder=3,
+        )
+    histogram.legend(loc="upper left", bbox_to_anchor=(0, 1.13), ncols=3, frameon=False)
+    for axis in (histogram.xaxis, histogram.yaxis, comparison.xaxis, comparison.yaxis):
+        axis.set_major_formatter(StrMethodFormatter("{x:,.0f}"))
+        axis.set_major_locator(MaxNLocator(nbins=6, integer=True))
+    save_figure(figure, path)
+    plt.close(figure)
+
+
 def run(args: argparse.Namespace) -> None:
     if (
         min(args.thin_step, args.n_districts, args.max_districts_per_county) < 1
@@ -209,6 +255,7 @@ def run(args: argparse.Namespace) -> None:
         audit.to_csv(out / "mct_geography_classification.csv", index=False)
         audit_totals.to_csv(out / "mct_geography_classification_summary.csv", index=False)
         _write_json(out / "mct_traces.json", {"chains": traces})
+        _plot(out / "mct_diagnostics.pdf", plans, references)
         _write_json(out / "mct_metadata.json", {
             **metadata, "allocation": membership.allocation_audit,
             "total_blocks": len(membership.blocks),
@@ -261,6 +308,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    matplotlib.use("Agg")
     run(parse_args())
 
 

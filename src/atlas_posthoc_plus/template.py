@@ -99,6 +99,19 @@ root = "outputs"
 # Set true for title-free Helvetica Neue figures saved as vector PDF.
 paper_mode = false
 
+# Standalone workflow. Match the 2020 Census block universe and the exact
+# node names and allocations used by the graph in inputs.graph_json.
+[workflow.mct-diagnostics]
+block_metadata = "inputs/census-2020/oh-block-population.csv"
+place_layer = "inputs/census-2020/oh-place.shp"
+cousub_layer = "inputs/census-2020/oh-cousub.shp"
+place_block_assignments = "inputs/census-2020/BlockAssign_ST39_OH_INCPLACE_CDP.txt"
+cousub_block_assignments = "inputs/census-2020/BlockAssign_ST39_OH_MCD.txt"
+township_lsadc = "44"  # Standard 2020 Ohio Census code. Use "47" for recoded township data.
+unit_definition = "whole"  # Or "county-component".
+split_block_policy = "reject"  # Or "allocated" for graph-specific population allocations.
+ensemble_unit_details = false
+
 [workflow.polsby-trace]
 metric = "average"
 
