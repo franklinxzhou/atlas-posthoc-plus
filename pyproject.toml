@@ -12,6 +12,8 @@ dependencies = [
     "openpyxl",
     "pandas",
     "pypdf>=5",
+    "pyproj",
+    "shapely>=2",
 ]
 
 [project.optional-dependencies]
