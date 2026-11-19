@@ -177,7 +177,7 @@ def prepare_blocks(
     return blocks.to_crs(projected_crs)
 
 
-def compute_plan_from_blocks(
+def dissolve_plan_blocks(
     *,
     blocks: gpd.GeoDataFrame,
     assignment_path: str | Path,
@@ -185,8 +185,8 @@ def compute_plan_from_blocks(
     assignment_block_col: str | None,
     assignment_district_col: str | None,
     expected_districts: int,
-) -> tuple[dict[str, Any], pd.DataFrame]:
-    print(f"\nComputing block-level Polsby-Popper for {plan_label}:")
+) -> tuple[gpd.GeoDataFrame, int]:
+    print(f"\nDissolving block geometries for {plan_label}:")
     print(f"  assignment: {assignment_path}")
 
     assign = read_assignment_file(
@@ -211,7 +211,26 @@ def compute_plan_from_blocks(
 
     # Dissolve all blocks assigned to each district. This removes internal block
     # boundaries and leaves district boundary geometry.
-    dissolved = merged.dissolve(by="__district__", as_index=False)
+    return merged.dissolve(by="__district__", as_index=False), len(merged)
+
+
+def compute_plan_from_blocks(
+    *,
+    blocks: gpd.GeoDataFrame,
+    assignment_path: str | Path,
+    plan_label: str,
+    assignment_block_col: str | None,
+    assignment_district_col: str | None,
+    expected_districts: int,
+) -> tuple[dict[str, Any], pd.DataFrame]:
+    dissolved, matched_blocks = dissolve_plan_blocks(
+        blocks=blocks,
+        assignment_path=assignment_path,
+        plan_label=plan_label,
+        assignment_block_col=assignment_block_col,
+        assignment_district_col=assignment_district_col,
+        expected_districts=expected_districts,
+    )
 
     dissolved["area"] = dissolved.geometry.area.astype(float)
     dissolved["perimeter"] = dissolved.geometry.length.astype(float)
@@ -230,9 +249,9 @@ def compute_plan_from_blocks(
     summary = summary_obj.to_dict()
     summary["plan"] = plan_label
     summary["n_districts"] = int(len(district_rows))
-    summary["matched_blocks"] = int(len(merged))
+    summary["matched_blocks"] = matched_blocks
     summary["total_blocks_in_shapefile"] = int(len(blocks))
-    summary["matched_block_share"] = float(assigned_share)
+    summary["matched_block_share"] = matched_blocks / len(blocks) if len(blocks) else np.nan
 
     for row in district_rows.itertuples(index=False):
         summary[f"district_{int(row.district)}_pp"] = float(row.polsby_popper)

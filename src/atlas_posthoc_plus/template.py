@@ -51,7 +51,8 @@ cvap_file = "inputs/cvap.zip"
 public_plan_dir = "inputs/plans/public"
 other_csv = "inputs/external/ensemble.csv"
 other_geojson = "inputs/external/units.geojson"
-polsby_traces_json = "outputs/atlas-posthoc/diagnostics/polsby_popper_traces.json"
+# Optional override for the traces exported by polsby-trace.
+# polsby_traces_json = "outputs/atlas-posthoc/diagnostics/polsby_popper_traces.json"
 # Optional: use this only if you already have a precomputed public-plan score CSV.
 # public_polsby_scores_csv = "outputs/polsby/public-plan-scores.csv"
 
@@ -108,6 +109,11 @@ bins = 40
 density = false
 public_score_method = "graph"
 refresh_public_scores = false
+
+[workflow.reock-histogram]
+stat = "average"
+burnin = 0
+bins = 40
 
 [workflow.municipal-tradeoff-weights]
 reuse_official_summary = true

@@ -1,2 +1,2 @@
-"""Cut-edge and Polsby-Popper analyses."""
+"""Cut-edge, Polsby-Popper, and Reock analyses."""
 

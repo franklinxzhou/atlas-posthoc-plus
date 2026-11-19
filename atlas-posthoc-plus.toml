@@ -49,7 +49,8 @@ cvap_file = "data/raw/oh_cvap_2023_b.zip"
 public_plan_dir = "scripts/plans/public/combined_21_25"
 other_csv = "data/other_ensembles/OH.csv"
 other_geojson = "data/other_ensembles/OH.geojson"
-polsby_traces_json = "../atlas-posthoc/outputs/smoke_full_four_chains_37_40/diagnostics/polsby_popper_traces.json"
+# Optional override for the traces exported by polsby-trace.
+# polsby_traces_json = "../atlas-posthoc/outputs/smoke_full_four_chains_37_40/diagnostics/polsby_popper_traces.json"
 
 # The regional-african-american-cvap workflow needs separate regional data.
 # Replace these example paths with your files. Both graphs must match the node
@@ -105,6 +106,11 @@ bins = 40
 density = false
 public_score_method = "graph"
 refresh_public_scores = false
+
+[workflow.reock-histogram]
+stat = "average"
+burnin = 0
+bins = 40
 
 [workflow.municipal-tradeoff-weights]
 reuse_official_summary = true

@@ -156,6 +156,7 @@ MAX_COUNTY = Binding(
     "--max-districts-per-county", "analysis.max_districts_per_county", default=2
 )
 N_DISTRICTS = Binding("--n-districts", "analysis.n_districts", default=15)
+POLSBY_TRACES = OutputDefault("polsby/polsby-popper-traces.json")
 
 
 WORKFLOWS: dict[str, WorkflowSpec] = {}
@@ -976,10 +977,12 @@ _register(
                 "path",
                 default=OutputDefault("polsby/official-summary.csv"),
             ),
+            N_DISTRICTS,
             Binding("--metric", "workflow.polsby-trace.metric", default="average"),
             Binding("--output-frequency", "analysis.output_frequency", default=50_000),
             Binding("--total-proposals", "analysis.total_proposals"),
             MAX_MAPS,
+            Binding("--traces-output", "outputs.polsby_traces_json", "path", default=POLSBY_TRACES),
             Binding(
                 "--output",
                 "outputs.polsby_trace",
@@ -997,7 +1000,7 @@ _register(
         "compactness",
         "Plot a Polsby-Popper histogram with optional public and official plan overlays.",
         (
-            Binding("--ensemble-pp-json", "inputs.polsby_traces_json", "path", required=True),
+            Binding("--ensemble-pp-json", "inputs.polsby_traces_json", "path", default=POLSBY_TRACES),
             Binding("--public-scores-csv", "inputs.public_polsby_scores_csv", "path"),
             Binding("--public-plan-dir", "inputs.public_plan_dir", "path"),
             Binding(
@@ -1055,6 +1058,52 @@ _register(
                 "outputs.polsby_histogram",
                 "path",
                 default=OutputDefault("polsby/polsby-histogram.png"),
+            ),
+        ),
+    )
+)
+
+_register(
+    WorkflowSpec(
+        "reock-histogram",
+        "atlas_posthoc_plus.workflows.compactness.reock_histogram",
+        "compactness",
+        "Plot Reock compactness from chain assignments and projected geometries.",
+        (
+            GRAPH,
+            CHAINS,
+            CHAIN_IDS,
+            MAX_MAPS,
+            Binding("--unit-shapefile", "inputs.precincts", "path", required=True),
+            Binding("--unit-key-col", "columns.precinct_name", default="NAME"),
+            Binding("--graph-geometry-key", "workflow.reock-histogram.graph_geometry_key"),
+            Binding("--projected-crs", "analysis.reock_projected_crs", default="EPSG:5070"),
+            Binding("--expected-districts", "analysis.n_districts", default=15),
+            Binding("--output-frequency", "analysis.output_frequency", default=50_000),
+            Binding("--thin-step", "workflow.reock-histogram.thin_step", default=1),
+            Binding("--public-scores-csv", "inputs.public_reock_scores_csv", "path"),
+            Binding("--public-plan-dir", "inputs.reock_public_plan_dir", "path"),
+            Binding("--official-scores-csv", "inputs.official_reock_scores_csv", "path"),
+            Binding("--block-shapefile", "inputs.block_shapefile", "path"),
+            Binding("--block-col", "columns.block_id"),
+            Binding("--assignment-block-col", "workflow.reock-histogram.assignment_block_col"),
+            Binding("--assignment-district-col", "workflow.reock-histogram.assignment_district_col"),
+            Binding("--enacted-baf", "plans.enacted", "path"),
+            Binding("--overturned-baf", "plans.overturned", "path"),
+            Binding("--remedial-baf", "plans.remedial", "path"),
+            Binding("--stat", "workflow.reock-histogram.stat", default="average"),
+            Binding("--burnin", "workflow.reock-histogram.burnin", default=0),
+            Binding("--bins", "workflow.reock-histogram.bins", default=40),
+            Binding("--density", "workflow.reock-histogram.density", "flag"),
+            Binding("--title", "workflow.reock-histogram.title"),
+            Binding("--ensemble-label", "workflow.reock-histogram.ensemble_label"),
+            Binding("--public-label", "workflow.reock-histogram.public_label"),
+            Binding("--official-label", "workflow.reock-histogram.official_label"),
+            Binding(
+                "--out",
+                "outputs.reock_histogram",
+                "path",
+                default=OutputDefault("reock/reock-histogram.png"),
             ),
         ),
     )
@@ -1335,6 +1384,8 @@ PIPELINES: dict[str, tuple[str, ...]] = {
 
 PIPELINES["full"] = (
     *PIPELINES["standard"],
+    "polsby-histogram",
+    "reock-histogram",
     *PIPELINES["municipal"],
     "responsiveness-zoom",
 )

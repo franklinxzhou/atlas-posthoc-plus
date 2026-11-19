@@ -10,9 +10,16 @@ from atlas_posthoc_plus.runner import prepare_workflow
 
 def test_all_workflow_modules_are_registered() -> None:
     modules = {spec.module for spec in WORKFLOWS.values()}
-    assert len(WORKFLOWS) == 27
-    assert len(modules) == 27
+    assert len(WORKFLOWS) == 28
+    assert len(modules) == 28
     assert all(importlib.util.find_spec(module) is not None for module in modules)
+
+
+def test_full_suite_runs_compactness_histograms_after_the_polsby_trace() -> None:
+    full = SUITES["full"]
+    assert full.index("official-polsby") < full.index("polsby-trace")
+    assert full.index("polsby-trace") < full.index("polsby-histogram")
+    assert "reock-histogram" in full
 
 
 def test_municipal_marginal_workflows_are_in_inventory() -> None:

@@ -41,16 +41,6 @@ STAT_TO_SUMMARY_COL = {
     "maximum": "maximum",
 }
 
-STAT_LABEL = {
-    "average": "Average district Polsby-Popper",
-    "mean": "Average district Polsby-Popper",
-    "min": "Minimum district Polsby-Popper",
-    "minimum": "Minimum district Polsby-Popper",
-    "max": "Maximum district Polsby-Popper",
-    "maximum": "Maximum district Polsby-Popper",
-}
-
-
 def _read_json(path: Path) -> Any:
     with path.open("r") as stream:
         return json.load(stream)
@@ -128,13 +118,15 @@ def load_ensemble_scores(path: str | Path, stat: str, burnin: int) -> pd.DataFra
     return df
 
 
-def load_public_scores(path: str | Path | None, stat: str) -> pd.DataFrame:
+def load_public_scores(
+    path: str | Path | None, stat: str, *, metric_name: str = "Polsby-Popper"
+) -> pd.DataFrame:
     if path is None:
         return pd.DataFrame(columns=["plan_id", "score"])
 
     source = Path(path)
     if not source.exists():
-        print(f"Public Polsby-Popper score CSV not found; skipping: {source}")
+        print(f"Public {metric_name} score CSV not found; skipping: {source}")
         return pd.DataFrame(columns=["plan_id", "score"])
 
     df = pd.read_csv(source)
@@ -522,13 +514,15 @@ def _resolve_official_label_col(df: pd.DataFrame) -> str:
     )
 
 
-def load_official_scores(path: str | Path | None, stat: str) -> pd.DataFrame:
+def load_official_scores(
+    path: str | Path | None, stat: str, *, metric_name: str = "Polsby-Popper"
+) -> pd.DataFrame:
     if path is None:
         return pd.DataFrame(columns=["label", "score"])
 
     source = Path(path)
     if not source.exists():
-        print(f"Official Polsby-Popper score CSV not found; skipping: {source}")
+        print(f"Official {metric_name} score CSV not found; skipping: {source}")
         return pd.DataFrame(columns=["label", "score"])
 
     df = pd.read_csv(source)
@@ -619,6 +613,7 @@ def plot_histogram(
     ensemble_label: str,
     public_label: str,
     official_label: str,
+    metric_name: str = "Polsby-Popper",
 ) -> None:
     scores = ensemble_df["score"].to_numpy()
 
@@ -664,7 +659,7 @@ def plot_histogram(
 
     ax.set_ylim(0, ymax * 1.08)
 
-    stat_label = STAT_LABEL[stat]
+    stat_label = f"{STAT_TO_SUMMARY_COL[stat].capitalize()} district {metric_name}"
     ax.set_xlabel(stat_label)
     ax.set_ylabel("Density" if density else "Number of saved plans")
     ax.set_title(title or f"Ohio congressional {stat_label.lower()} distribution")
