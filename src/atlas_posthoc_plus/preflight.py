@@ -81,10 +81,12 @@ def check_workflow(config: ProjectConfig, spec: WorkflowSpec) -> list[Check]:
     for key, path in _input_paths(config, spec):
         checks.append(Check(path.exists(), key, str(path)))
 
-    graph_path = config.path_value("inputs.graph_json")
-    if graph_path is not None and any(
-        binding.key == "inputs.graph_json" for binding in spec.bindings
-    ):
+    graph_binding = next(
+        (binding for binding in spec.bindings if binding.flag in {"--graph-json", "--graph-path"}),
+        None,
+    )
+    graph_path = config.path_value(graph_binding.key) if graph_binding is not None else None
+    if graph_path is not None:
         try:
             from atlas_posthoc.io.graph_reader import read_graph_json
 

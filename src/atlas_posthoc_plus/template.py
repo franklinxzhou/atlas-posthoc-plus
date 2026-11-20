@@ -29,6 +29,8 @@ polsby_projected_crs = "EPSG:5070"
 # set place_shapefile to the matching Census Place layer. Change both graph
 # paths, set inputs.block_metadata to the graph-generation block checkpoint,
 # and choose a distinct output_namespace such as "place".
+# For MCT, set mode = "MCT", point graph_json at the matching graph, and set
+# output_namespace = "mct". Configure the Census archive below.
 [municipality]
 mode = "COUSUB"
 graph_json = "inputs/graph.json"
@@ -99,8 +101,8 @@ root = "outputs"
 # Set true for title-free Helvetica Neue figures saved as vector PDF.
 paper_mode = false
 
-# Standalone workflow. Use the Ohio 2020 P.L. 94-171 ZIP or its ohgeo2020.pl
-# member. Supply the block allocations for the graph in inputs.graph_json.
+# Combined analysis in MCT mode or running mct-diagnostics directly. Use the
+# Ohio 2020 P.L. 94-171 ZIP or its ohgeo2020.pl member and a matching crosswalk.
 [workflow.mct-diagnostics]
 census_geography_header = "inputs/census-2020/oh2020.pl.zip"
 township_lsadc = "44"  # Standard 2020 Ohio Census code. Use "47" for recoded township data.

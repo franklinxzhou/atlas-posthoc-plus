@@ -16,7 +16,7 @@ from atlas_posthoc_plus.io.chain_sweep import (
     SWEEP_LIMIT_ENV,
     materialize_chain_sweep,
 )
-from atlas_posthoc_plus.registry import WORKFLOWS
+from atlas_posthoc_plus.registry import WORKFLOWS, WorkflowSpec, workflow_for_mode
 from atlas_posthoc_plus.runner import (
     PreparedWorkflow,
     _subprocess_environment,
@@ -112,7 +112,8 @@ def _suite_environment(
         chain_workflows = [
             item
             for item in prepared
-            if any(binding.key == "chains.files" for binding in item.spec.bindings)
+            if item.spec.uses_chain_sweep
+            and any(binding.key == "chains.files" for binding in item.spec.bindings)
         ]
         if chain_workflows:
             cache_dir = config.output_root / ".atlas-chain-cache"
@@ -179,10 +180,11 @@ def run_suite(
     keep_going: bool = False,
     paper_mode: bool | None = None,
 ) -> int:
-    selected_workflows: list[str] = []
+    selected_workflows: dict[str, WorkflowSpec] = {}
     municipality_mode = str(config.get("municipality.mode", "")).upper()
     for workflow_name in workflows:
-        required_mode = WORKFLOWS[workflow_name].required_municipality_mode
+        spec = WORKFLOWS[workflow_name]
+        required_mode = spec.required_municipality_mode
         if required_mode is not None and required_mode != municipality_mode:
             print(
                 f"Skipping {workflow_name}: requires municipality.mode={required_mode} "
@@ -190,15 +192,19 @@ def run_suite(
                 flush=True,
             )
             continue
-        selected_workflows.append(workflow_name)
+        resolved = workflow_for_mode(spec, municipality_mode)
+        if resolved is None:
+            print(f"Skipping {workflow_name}: unavailable in municipality.mode={municipality_mode}")
+            continue
+        selected_workflows.setdefault(resolved.name, resolved)
 
     prepared = [
         prepare_workflow(
-            WORKFLOWS[workflow_name],
+            spec,
             config,
             paper_mode=paper_mode,
         )
-        for workflow_name in selected_workflows
+        for spec in selected_workflows.values()
     ]
 
     if dry_run:

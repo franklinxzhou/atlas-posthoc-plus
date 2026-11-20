@@ -27,6 +27,8 @@ polsby_projected_crs = "EPSG:5070"
 # mode = "PLACE", enable the two commented fields below, and set
 # output_namespace = "place". Set inputs.block_metadata to the graph-generation
 # checkpoint "data/derived/cblocksMergeMultiPcts_OH.gpkg".
+# For MCT, set mode = "MCT", point graph_json at the matching graph, and set
+# output_namespace = "mct". Configure the Census archive below.
 [municipality]
 mode = "COUSUB"
 graph_json = "data/graph/OHpct20.json"
@@ -96,7 +98,7 @@ root = "../atlas-posthoc-plus/outputs"
 # Set true for title-free Helvetica Neue figures saved as vector PDF.
 paper_mode = false
 
-# Optional standalone diagnostic using the original 2020 Ohio Census archive.
+# Combined analysis in MCT mode or running mct-diagnostics directly.
 [workflow.mct-diagnostics]
 census_geography_header = "data/raw/oh2020.pl.zip"
 township_lsadc = "44"

@@ -1,18 +1,25 @@
 # Municipal Corporations and Townships
 
-The standalone `mct-diagnostics` workflow compares compliant AtlasIO ensemble plans with the
+The `mct-diagnostics` workflow compares compliant AtlasIO ensemble plans with the
 2021 overturned, 2022 remedial, and 2025 enacted congressional plans. It uses the same Census
 block populations and joint membership for both sets of plans.
 
 ## Run on the Ohio ensembles
 
-Use the graph, chains, and official block assignment files already named in the project TOML.
+Select `MCT` in `[municipality]` alongside the existing `PLACE` and `COUSUB` modes.
+Set the municipality graph to the graph used for the selected chains and choose its
+output namespace. Use the official block assignment files already named in the project TOML.
 Download the Ohio 2020 redistricting archive and set
 `workflow.mct-diagnostics.census_geography_header` to that ZIP or its extracted
 `ohgeo2020.pl` member. The example TOML selects the codes in the original Census release.
 [Ohio 2020 P.L. 94-171 data](https://www2.census.gov/programs-surveys/decennial/2020/data/01-Redistricting_File--PL_94-171/Ohio/oh2020.pl.zip)
 
 ```toml
+[municipality]
+mode = "MCT"
+graph_json = "data/graph/OHpct20.json"
+output_namespace = "mct"
+
 [workflow.mct-diagnostics]
 census_geography_header = "data/raw/oh2020.pl.zip"
 township_lsadc = "44"
@@ -22,7 +29,7 @@ ensemble_unit_details = false
 ```
 
 Point `inputs.crosswalk_csv` at the allocation used to construct the chosen
-`inputs.graph_json`. The default crosswalk columns are `GEOID20,NAME,POP20`. Each row
+municipality graph. The default crosswalk columns are `GEOID20,NAME,POP20`. Each row
 reports a 2020 block's population allocated to one graph node identified by its unique
 `NAME`. The three crosswalk columns and the graph and AtlasIO key columns can be
 overridden in the workflow table. The three `[plans]` files accept the existing XLSX and CSV
@@ -31,8 +38,15 @@ block assignment formats. For custom headers, set `assignment_block_col` and
 
 ```console
 aph-plus -c atlas-posthoc-plus.toml doctor mct-diagnostics
-aph-plus -c atlas-posthoc-plus.toml --paper-mode run mct-diagnostics
+aph-plus -c atlas-posthoc-plus.toml --paper-mode suite municipal
 ```
+
+In explicit `MCT` mode, the municipal suite runs the combined analysis once.
+`run municipal-histograms-compliant`, `run municipal-histograms`, and
+`run municipal-tradeoff` also resolve to that analysis. The standard and full suites
+use it for the supported municipal outputs when `MCT` is selected.
+`run mct-diagnostics` is also available directly. Outside explicit `MCT` mode, that
+standalone command continues to use `inputs.graph_json` and defaults to `outputs/mct/`.
 
 The workflow uses `analysis.n_districts`, `analysis.max_districts_per_county`,
 `analysis.thin_step` (default 1), and `analysis.max_maps_per_chain`. The limit
@@ -99,6 +113,13 @@ the population with at least one eligible membership. Residents with no eligible
 memberships are counted in the statewide denominator and in the first row of the
 table. [2020 Census resident population](https://www2.census.gov/programs-surveys/decennial/2020/data/apportionment/apportionment-2020-table02.pdf)
 
+The municipal corporation tradeoff uses the number of cut cities plus cut villages
+and divides municipal corporation ousted population by the population in eligible
+cities and villages. The township tradeoff uses the number of cut townships and
+divides township ousted population by the population in eligible townships. A resident
+ousted from both categories contributes to each of these separate shares. A share is
+undefined when its category has zero represented population.
+
 The older PLACE graph dictionaries and COUSUB node scalars lack joint block membership.
 The Census header supplies this directly. The crosswalk supplies block-to-node
 assignments only when its keys and populations agree with the graph. The project's
@@ -120,7 +141,8 @@ The workflow requires one district per 2020 block for official plans.
 
 ## Outputs and cost
 
-The default destination is `outputs/mct/`. The per-chain JSON traces, ensemble plan
+The default destination is `outputs.root` under the configured municipal
+`output_namespace` (for example, `outputs/mct/`). The per-chain JSON traces, ensemble plan
 CSV, chain summary, and official-plan CSV carry the scalar metrics. The unit details
 CSV includes the three official plans by default. Enabling `ensemble_unit_details`
 adds a per-unit row for each retained ensemble plan and can create a large file.
@@ -129,6 +151,9 @@ The main vector PDF uses the PLACE and COUSUB histogram layout for cut units and
 deduplicated ousted population, including the same three official reference lines
 and legend. A second vector PDF compares conventional summed and deduplicated
 population using the same official-plan colors.
+The category plots are `mct_municipal_corporation_tradeoff.pdf` and
+`mct_township_tradeoff.pdf`. Both reuse the municipal tradeoff styling, with points
+colored by chain and markers for the three official plans.
 
 The workflow caches validated population and membership tables under
 `.membership-cache` in the output directory. Census source, graph, crosswalk,

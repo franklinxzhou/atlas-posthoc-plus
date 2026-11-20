@@ -102,7 +102,7 @@ Important sections:
 - `[chains]`: AtlasIO chain files and chain labels.
 - `[analysis]`: district count, compliance rule, thinning, and proposal count.
 - `[inputs]`: graph, crosswalk, block/MCD geometry, CVAP, and derived files.
-- `[municipality]`: explicit COUSUB or PLACE graph/schema bindings and output namespace.
+- `[municipality]`: COUSUB, PLACE, or MCT graph/schema bindings and output namespace.
 - `[plans]`: enacted, overturned, and remedial block-assignment files.
 - `[elections.layers]`: election layers keyed by year.
 - `[outputs]`: the root directory for generated results.
@@ -140,7 +140,7 @@ In paper mode, every plotting workflow:
 Axis labels, tick labels, legends, and annotations remain intact so each figure
 still identifies its marks without relying on the manuscript caption.
 
-Municipal analyses use one of two explicit arms. The checked-in configuration
+Municipal analyses support three explicit modes. The checked-in configuration
 retains the baseline:
 
 ```toml
@@ -177,6 +177,14 @@ automatically matches the Place layer's `GEOID` or `NAME` field to the graph's
 keys. Set `place_key_column` to override the inferred field. Municipality-scoped
 default outputs are written under `outputs.root` in the `output_namespace`
 subdirectory, and cache metadata prevents cross-arm reuse.
+
+Select `mode = "MCT"` to analyze cities, villages, and townships together.
+Set `municipality.graph_json` to the graph used by the selected chains and
+`municipality.output_namespace` to `"mct"` or another dedicated directory.
+Configure the 2020 Census input under `[workflow.mct-diagnostics]` and run
+`aph-plus --paper-mode suite municipal`. The outputs include separate cut-count
+versus ousted-population-share plots for municipal corporations and townships.
+See the [configuration guide](docs/municipal-corporations-and-townships.md).
 
 ## Running one analysis
 

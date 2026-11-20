@@ -41,6 +41,10 @@ class SplitScorer:
             [unit_ids.get_indexer(pieces[column]) for column in MEMBERSHIPS]
         )
         self.has_membership = self.unit_index >= 0
+        self.municipal_corporation_population, self.township_population = map(
+            float,
+            self.population @ self.has_membership,
+        )
         self.member_units = self.unit_index[self.has_membership]
         self.member_population = np.broadcast_to(
             self.population[:, None],
@@ -81,13 +85,28 @@ class SplitScorer:
         ousted = OustedPopulation(*map(float, cases))
         n_represented_districts = (totals > 0).sum(axis=1)
         cuts = n_represented_districts > 1
+        cut_cities = int(np.count_nonzero(cuts & (self.kinds == "city")))
+        cut_villages = int(np.count_nonzero(cuts & (self.kinds == "village")))
+        municipal_ousted = ousted.municipal_only + ousted.both
+        township_ousted = ousted.township_only + ousted.both
         summary = {
-            "cut_cities": int(np.count_nonzero(cuts & (self.kinds == "city"))),
-            "cut_villages": int(np.count_nonzero(cuts & (self.kinds == "village"))),
+            "cut_cities": cut_cities,
+            "cut_villages": cut_villages,
+            "cut_municipal_corporations": cut_cities + cut_villages,
             "cut_townships": int(np.count_nonzero(cuts & (self.kinds == "township"))),
             "cut_mct_units": int(cuts.sum()),
-            "municipal_corporation_ousted_population": ousted.municipal_only + ousted.both,
-            "township_ousted_population": ousted.township_only + ousted.both,
+            "municipal_corporation_ousted_population": municipal_ousted,
+            "township_ousted_population": township_ousted,
+            "municipal_corporation_represented_population": self.municipal_corporation_population,
+            "township_represented_population": self.township_population,
+            "municipal_corporation_ousted_share": (
+                municipal_ousted / self.municipal_corporation_population
+                if self.municipal_corporation_population
+                else None
+            ),
+            "township_ousted_share": (
+                township_ousted / self.township_population if self.township_population else None
+            ),
             "naive_ousted_population": ousted.union + ousted.both,
             "deduplicated_ousted_population": ousted.union,
             "double_counted_overlap": ousted.both,
