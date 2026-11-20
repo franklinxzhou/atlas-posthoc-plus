@@ -28,6 +28,7 @@ from atlas_posthoc_plus.workflows.municipal.mct_geography import (
     load_membership,
 )
 from atlas_posthoc_plus.workflows.municipal.mct_metrics import SplitScorer
+from atlas_posthoc_plus.workflows.municipal.tradeoff import plot_tradeoff
 from atlas_posthoc_plus.workflows.municipal.tradeoff_weights import read_assignment_table
 
 OFFICIAL_PLANS = (
@@ -254,6 +255,63 @@ def _plot_diagnostics(out: Path, plans: pd.DataFrame, references: pd.DataFrame) 
     plt.close(figure)
 
 
+def _plot_category_tradeoffs(out: Path, traces: list[dict], official: pd.DataFrame) -> None:
+    from matplotlib import pyplot as plt
+
+    for units, cut_key, share_key, filename in (
+        (
+            "Municipal Corporations",
+            "cut_municipal_corporations",
+            "municipal_corporation_ousted_share",
+            "mct_municipal_corporation_tradeoff.pdf",
+        ),
+        ("Townships", "cut_townships", "township_ousted_share", "mct_township_tradeoff.pdf"),
+    ):
+        output = out / filename
+        x_label = f"Number of cut {units}"
+        y_label = f"Ousted population share\n{units}"
+        if official[share_key].isna().all():
+            figure, axis = plt.subplots()
+            axis.set(xlabel=x_label, ylabel=y_label, xticks=[], yticks=[])
+            axis.text(
+                0.5,
+                0.5,
+                "No represented population",
+                ha="center",
+                va="center",
+                transform=axis.transAxes,
+            )
+            save_figure(figure, output)
+            plt.close(figure)
+            continue
+
+        plot_tradeoff(
+            traces=[
+                {
+                    "chain_id": trace["chain_id"],
+                    "n_cut_municipalities": [plan[cut_key] for plan in trace["plans"]],
+                    share_key: [plan[share_key] for plan in trace["plans"]],
+                }
+                for trace in traces
+            ],
+            refs={
+                label: {
+                    "n_cut_municipalities": official.at[plan, cut_key],
+                    share_key: official.at[plan, share_key],
+                }
+                for plan, label in PLOT_REFERENCE_LABELS.items()
+            },
+            output=output,
+            title=f"{units} split tradeoff",
+            x_label=x_label,
+            y_key=share_key,
+            y_label=y_label,
+            use_percent_axis=True,
+            label_references=False,
+            hollow_references=True,
+        )
+
+
 def run(args: argparse.Namespace) -> None:
     if min(args.thin_step, args.n_districts, args.max_districts_per_county) < 1 or (
         args.max_maps_per_chain is not None and args.max_maps_per_chain < 1
@@ -318,6 +376,7 @@ def run(args: argparse.Namespace) -> None:
         audit_totals.to_csv(out / "mct_geography_classification_summary.csv", index=False)
         _write_json(out / "mct_traces.json", {"chains": traces})
         _plot_diagnostics(out, plans, references)
+        _plot_category_tradeoffs(out, traces, references.set_index("plan"))
         _write_json(
             out / "mct_metadata.json",
             {
@@ -327,6 +386,10 @@ def run(args: argparse.Namespace) -> None:
                 "positive_blocks": int(membership.blocks["population"].gt(0).sum()),
                 "statewide_population": population,
                 "represented_population": official_scorer.represented_population,
+                "municipal_corporation_represented_population": (
+                    official_scorer.municipal_corporation_population
+                ),
+                "township_represented_population": official_scorer.township_population,
                 "positive_population_cuts": True,
                 "dominant_district_order": "ascending numeric label, with a 1e-9 population tie tolerance",
                 "thinning": args.thin_step,

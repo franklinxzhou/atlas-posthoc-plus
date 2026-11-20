@@ -23,7 +23,7 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
-from matplotlib.ticker import PercentFormatter
+from matplotlib.ticker import MaxNLocator, PercentFormatter
 import numpy as np
 
 from atlas_posthoc_plus.workflows.municipal.geography import municipality_name_for_traces
@@ -150,6 +150,8 @@ def plot_tradeoff(
     y_label: str,
     use_percent_axis: bool,
     label_references: bool,
+    x_label: str | None = None,
+    hollow_references: bool = False,
 ) -> None:
     if not isinstance(traces, list) or not traces:
         raise ValueError("traces JSON must be a nonempty list.")
@@ -205,14 +207,15 @@ def plot_tradeoff(
             [y],
             s=260,
             marker=style["marker"],
-            color=style["color"],
-            edgecolors="black",
+            facecolors="none" if hollow_references else style["color"],
+            edgecolors=style["color"] if hollow_references else "black",
             linewidths=1.4,
             zorder=10,
         )
 
     xlim, ylim = compute_axis_limits(traces, refs, y_key=y_key)
-    ax.set_xlim(*xlim)
+    ax.set_xlim(max(-0.35, xlim[0]), xlim[1])
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     ax.set_ylim(*ylim)
 
     # Reference labels after limits are fixed.
@@ -250,7 +253,9 @@ def plot_tradeoff(
             )
 
     ax.set_title(title, fontsize=22, pad=14)
-    ax.set_xlabel(f"Number of cut {municipality_name_for_traces(traces)}s", fontsize=16)
+    if x_label is None:
+        x_label = f"Number of cut {municipality_name_for_traces(traces)}s"
+    ax.set_xlabel(x_label, fontsize=16)
     ax.set_ylabel(y_label, fontsize=16)
 
     if use_percent_axis:
@@ -283,8 +288,8 @@ def plot_tradeoff(
             [0],
             marker=style["marker"],
             linestyle="None",
-            markerfacecolor=style["color"],
-            markeredgecolor="black",
+            markerfacecolor="none" if hollow_references else style["color"],
+            markeredgecolor=style["color"] if hollow_references else "black",
             markeredgewidth=1.2,
             markersize=10,
             label=label,

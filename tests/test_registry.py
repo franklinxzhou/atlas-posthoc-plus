@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from atlas_posthoc_plus.config import ConfigError, load_config
-from atlas_posthoc_plus.registry import SUITES, WORKFLOWS
+from atlas_posthoc_plus.registry import SUITES, WORKFLOWS, get_workflow
 from atlas_posthoc_plus.runner import prepare_workflow
 
 
@@ -22,11 +22,17 @@ def test_full_suite_runs_compactness_histograms_after_the_polsby_trace() -> None
     assert "reock-histogram" in full
 
 
-def test_mct_diagnostics_is_standalone() -> None:
+def test_mct_diagnostics_is_opt_in() -> None:
     assert WORKFLOWS["mct-diagnostics"].module == (
         "atlas_posthoc_plus.workflows.municipal.mct_diagnostics"
     )
     assert all("mct-diagnostics" not in workflows for workflows in SUITES.values())
+    assert get_workflow("municipal-tradeoff", municipality_mode="MCT").name == "mct-diagnostics"
+    assert get_workflow("municipal-histograms", municipality_mode="MCT").name == "mct-diagnostics"
+    for mode in ("COUSUB", "PLACE"):
+        assert get_workflow("municipal-tradeoff", municipality_mode=mode).name == "municipal-tradeoff"
+    with pytest.raises(ConfigError, match="unavailable in municipality.mode=MCT"):
+        get_workflow("municipal-distributions", municipality_mode="MCT")
 
 
 def test_municipal_marginal_workflows_are_in_inventory() -> None:

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from atlas_posthoc_plus.config import ConfigError, load_config
 from atlas_posthoc_plus.preflight import check_workflow, dependency_checks, print_checks
-from atlas_posthoc_plus.registry import SUITES, WORKFLOWS, get_workflow
+from atlas_posthoc_plus.registry import SUITES, WORKFLOWS, get_workflow, workflow_for_mode
 from atlas_posthoc_plus.runner import prepare_workflow, run_workflow
 from atlas_posthoc_plus.suite import run_suite
 from atlas_posthoc_plus.template import EXAMPLE_CONFIG
@@ -110,10 +110,11 @@ def main(argv: list[str] | None = None) -> int:
             return _init(args.path, force=args.force)
 
         config = load_config(args.config)
+        municipality_mode = str(config.get("municipality.mode", "")).upper()
 
         if args.command == "show":
             prepared = prepare_workflow(
-                get_workflow(args.workflow),
+                get_workflow(args.workflow, municipality_mode=municipality_mode),
                 config,
                 paper_mode=args.paper_mode,
             )
@@ -123,11 +124,15 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "doctor":
             ok = print_checks(dependency_checks())
-            specs = (
-                [get_workflow(args.workflow)]
-                if args.workflow
-                else [WORKFLOWS[name] for name in sorted(WORKFLOWS)]
-            )
+            if args.workflow:
+                specs = [get_workflow(args.workflow, municipality_mode=municipality_mode)]
+            else:
+                active = {}
+                for name in sorted(WORKFLOWS):
+                    spec = workflow_for_mode(WORKFLOWS[name], municipality_mode)
+                    if spec is not None:
+                        active.setdefault(spec.name, spec)
+                specs = active.values()
             for spec in specs:
                 print(f"\n[{spec.name}]")
                 ok = print_checks(check_workflow(config, spec)) and ok
@@ -135,7 +140,7 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "run":
             return run_workflow(
-                get_workflow(args.workflow),
+                get_workflow(args.workflow, municipality_mode=municipality_mode),
                 config,
                 extra_args=extra_args,
                 dry_run=args.dry_run,

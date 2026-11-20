@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -38,6 +38,7 @@ class WorkflowSpec:
     legacy: bool = False
     required_municipality_mode: Literal["COUSUB", "PLACE"] | None = None
     config_flag: str | None = None
+    uses_chain_sweep: bool = True
 
     def build_args(self, config: ProjectConfig) -> list[str]:
         if self.required_municipality_mode is not None:
@@ -157,6 +158,7 @@ MAX_COUNTY = Binding(
 )
 N_DISTRICTS = Binding("--n-districts", "analysis.n_districts", default=15)
 POLSBY_TRACES = OutputDefault("polsby/polsby-popper-traces.json")
+MCT_OUTPUT = Binding("--output-dir", "outputs.mct_dir", "path", default=OutputDefault("mct"))
 
 
 WORKFLOWS: dict[str, WorkflowSpec] = {}
@@ -319,8 +321,9 @@ _register(
             Binding("--assignment-block-col", "workflow.mct-diagnostics.assignment_block_col"),
             Binding("--assignment-district-col", "workflow.mct-diagnostics.assignment_district_col"),
             Binding("--ensemble-unit-details", "workflow.mct-diagnostics.ensemble_unit_details", "flag"),
-            Binding("--output-dir", "outputs.mct_dir", "path", default=OutputDefault("mct")),
+            MCT_OUTPUT,
         ),
+        uses_chain_sweep=False,
     )
 )
 
@@ -1434,10 +1437,46 @@ PIPELINES["full"] = (
 
 SUITES = PIPELINES
 
+_MCT_ALIASES = {
+    "mct-diagnostics",
+    "municipal-histograms-compliant",
+    "municipal-histograms",
+    "municipal-tradeoff",
+}
+_MCT_WORKFLOW = WORKFLOWS["mct-diagnostics"]
+_MCT_MODE_BINDINGS = {
+    GRAPH.key: MUNICIPAL_GRAPH,
+    MCT_OUTPUT.key: replace(MCT_OUTPUT, default=MunicipalityOutputDefault(".")),
+}
+_MCT_MODE_WORKFLOW = replace(
+    _MCT_WORKFLOW,
+    bindings=tuple(_MCT_MODE_BINDINGS.get(binding.key, binding) for binding in _MCT_WORKFLOW.bindings),
+)
 
-def get_workflow(name: str) -> WorkflowSpec:
+
+def workflow_for_mode(spec: WorkflowSpec, municipality_mode: str) -> WorkflowSpec | None:
+    """Resolve workflows against the configured municipal geography."""
+    if municipality_mode != "MCT":
+        return spec
+    if spec.name in _MCT_ALIASES:
+        return _MCT_MODE_WORKFLOW
+    if any(
+        binding.key == "municipality.mode" or isinstance(binding.default, MunicipalityOutputDefault)
+        for binding in spec.bindings
+    ):
+        return None
+    return spec
+
+
+def get_workflow(name: str, *, municipality_mode: str = "") -> WorkflowSpec:
     try:
-        return WORKFLOWS[name]
+        spec = WORKFLOWS[name]
     except KeyError as exc:
         choices = ", ".join(sorted(WORKFLOWS))
         raise ConfigError(f"unknown workflow {name!r}; choose from: {choices}") from exc
+    resolved = workflow_for_mode(spec, municipality_mode)
+    if resolved is None:
+        raise ConfigError(
+            f"workflow {name!r} is unavailable in municipality.mode=MCT; use mct-diagnostics"
+        )
+    return resolved

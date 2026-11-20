@@ -76,6 +76,9 @@ def test_four_cases_with_different_dominants():
     assert summary["population_ousted_from_both"] == 12
     assert summary["municipal_corporation_ousted_population"] == 20
     assert summary["township_ousted_population"] == 22
+    assert summary["cut_municipal_corporations"] == 1
+    assert summary["municipal_corporation_ousted_share"] == pytest.approx(20 / 50)
+    assert summary["township_ousted_share"] == pytest.approx(22 / 55)
     assert summary["naive_ousted_population"] == 42
     assert summary["deduplicated_ousted_population"] == 30
     assert summary["double_counted_overlap"] == 12
@@ -422,13 +425,25 @@ def test_conflicting_and_incomplete_census_membership(inputs):
         load_membership(**inputs)
 
 
-def _cli(tmp_path: Path, *, thin_step: int = 2) -> subprocess.CompletedProcess[str]:
+def _cli(tmp_path: Path, *, mct_mode: bool = False) -> subprocess.CompletedProcess[str]:
     config = tmp_path / "config.toml"
+    graph = "unused.json" if mct_mode else "graph.json"
+    municipality = (
+        """
+[municipality]
+mode = "MCT"
+graph_json = "graph.json"
+output_namespace = "joint"
+"""
+        if mct_mode
+        else ""
+    )
     config.write_text(f"""
 [project]
 root = "."
+{municipality}
 [inputs]
-graph_json = "graph.json"
+graph_json = "{graph}"
 crosswalk_csv = "crosswalk.csv"
 [chains]
 files = ["one.jsonl", "two.jsonl"]
@@ -441,7 +456,7 @@ enacted = "enacted.xlsx"
 n_districts = 3
 max_districts_per_county = 2
 max_maps_per_chain = 2
-thin_step = {thin_step}
+thin_step = 2
 [outputs]
 root = "results"
 [workflow.mct-diagnostics]
@@ -459,8 +474,7 @@ ensemble_unit_details = true
             "-c",
             str(config),
             "--paper-mode",
-            "run",
-            "mct-diagnostics",
+            *(("suite", "municipal") if mct_mode else ("run", "mct-diagnostics")),
         ],
         check=False,
         capture_output=True,
@@ -469,10 +483,15 @@ ensemble_unit_details = true
     )
 
 
-def test_workflow_cli_outputs_are_comparable(inputs, tmp_path):
-    result = _cli(tmp_path)
+@pytest.mark.parametrize("mct_mode", [False, True], ids=["standalone", "municipal-suite"])
+def test_workflow_cli_outputs_are_comparable(inputs, tmp_path, mct_mode):
+    result = _cli(tmp_path, mct_mode=mct_mode)
     assert result.returncode == 0, result.stdout + result.stderr
-    out = tmp_path / "results" / "mct"
+    results = tmp_path / "results"
+    if mct_mode:
+        manifest = json.loads((results / "suite-municipal-manifest.json").read_text())
+        assert [result["workflow"] for result in manifest["results"]] == ["mct-diagnostics"]
+    out = results / ("joint" if mct_mode else "mct")
     expected = {
         "mct_traces.json",
         "mct_plan_summary.csv",
@@ -483,6 +502,8 @@ def test_workflow_cli_outputs_are_comparable(inputs, tmp_path):
         "mct_geography_classification_summary.csv",
         "mct_diagnostics.pdf",
         "mct_naive_vs_deduplicated.pdf",
+        "mct_municipal_corporation_tradeoff.pdf",
+        "mct_township_tradeoff.pdf",
         "mct_metadata.json",
     }
     assert expected <= {p.name for p in out.iterdir()}
@@ -497,6 +518,11 @@ def test_workflow_cli_outputs_are_comparable(inputs, tmp_path):
     assert official.loc[1, "double_counted_overlap"] == 5
     assert official.loc[1, "naive_ousted_population"] == 28
     assert official.loc[1, "deduplicated_ousted_population"] == 23
+    assert official.loc[1, "cut_municipal_corporations"] == 1
+    assert official.loc[1, "municipal_corporation_represented_population"] == 52
+    assert official.loc[1, "township_represented_population"] == 48
+    assert official.loc[1, "municipal_corporation_ousted_share"] == pytest.approx(13 / 52)
+    assert official.loc[1, "township_ousted_share"] == pytest.approx(15 / 48)
     assert official["plan"].tolist() == ["2021 overturned", "2022 remedial", "2025 enacted"]
     chain_summary = pd.read_csv(out / "mct_chain_summary.csv")
     assert chain_summary["examined"].tolist() == [2, 2]
@@ -517,6 +543,16 @@ def test_workflow_cli_outputs_are_comparable(inputs, tmp_path):
     comparison = PdfReader(out / "mct_naive_vs_deduplicated.pdf")
     assert "Municipal Corporations and Townships" in comparison.pages[0].extract_text()
     assert len(comparison.pages[0].images) == 0
+    for category, title in (
+        ("municipal_corporation", "Municipal Corporations"),
+        ("township", "Townships"),
+    ):
+        tradeoff = PdfReader(out / f"mct_{category}_tradeoff.pdf").pages[0]
+        labels = tradeoff.extract_text()
+        assert f"Number of cut {title}" in labels
+        assert "Ousted population share" in labels
+        assert "Reference plans" in labels and "chain-a" in labels
+        assert len(tradeoff.images) == 0
 
 
 @pytest.mark.parametrize("conflict", [False, True])
