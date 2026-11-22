@@ -33,7 +33,15 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from atlas_posthoc_plus.paper import apply_paper_style, save_figure
+from atlas_posthoc_plus.paper import (
+    DATA_LABEL_GID,
+    apply_paper_style,
+    figure_legend,
+    official_plan_styles,
+    paper_mode_enabled,
+    save_figure,
+    set_panel_title,
+)
 
 import numpy as np
 import pandas as pd
@@ -262,7 +270,7 @@ def draw_ridgeline_panel(
 
         # official plans as colored dots
         off = official[official["race_id"] == race_id]
-        for plan_label, style in PLAN_STYLES.items():
+        for plan_label, style in official_plan_styles(PLAN_STYLES):
             row = off[off["source"] == plan_label]
             if row.empty:
                 continue
@@ -391,10 +399,10 @@ def draw_public_multiplicity_panel(
                         ha="center",
                         va="center",
                         zorder=6,
-                    )
+                    ).set_gid(DATA_LABEL_GID)
 
         off = official[official["race_id"] == race_id]
-        for plan_label, style in PLAN_STYLES.items():
+        for plan_label, style in official_plan_styles(PLAN_STYLES):
             row = off[off["source"] == plan_label]
             if row.empty:
                 continue
@@ -431,7 +439,7 @@ def draw_public_multiplicity_panel(
 
 def _official_legend_handles(*, outlined: bool) -> list[Line2D]:
     handles: list[Line2D] = []
-    for label, style in PLAN_STYLES.items():
+    for label, style in official_plan_styles(PLAN_STYLES):
         handles.append(
             Line2D(
                 [0],
@@ -489,6 +497,13 @@ def _public_legend_handles() -> list[Line2D]:
     ]
 
 
+def _overview_legend(ax, handles: list[Line2D], title: str | None = None) -> None:
+    placement = {"loc": "upper left"}
+    if paper_mode_enabled():
+        placement = {"loc": "lower left", "bbox_to_anchor": (0, 1.04), "ncol": 2}
+    figure_legend(ax, handles=handles, title=title, **placement)
+
+
 def _plot_ensemble_figure(
     races: pd.DataFrame,
     ensemble: pd.DataFrame,
@@ -525,10 +540,10 @@ def _plot_ensemble_figure(
         dot_size=76,
         axis_limits=_axis_limits(races, n_districts),
     )
-    ax_over.set_title("Overview")
+    set_panel_title(ax_over, "Overview")
     ax_over.set_xlabel("Democrats elected")
     ax_over.set_ylabel("Statewide Democratic vote share")
-    ax_over.legend(handles=_ensemble_legend_handles(), loc="upper left")
+    _overview_legend(ax_over, _ensemble_legend_handles())
 
     # Draw zoom panels covering the same chunks used by the public companion.
     for i, chunk in enumerate(chunks):
@@ -546,7 +561,7 @@ def _plot_ensemble_figure(
         )
         lo = chunk["statewide_dem_share"].min()
         hi = chunk["statewide_dem_share"].max()
-        ax.set_title(f"Zoom {i+1}: vote-share range {lo:.1%} to {hi:.1%}")
+        set_panel_title(ax, f"Zoom {i+1}: vote-share range {lo:.1%} to {hi:.1%}")
         if i == n_zoom - 1:
             ax.set_xlabel("Democrats elected")
         else:
@@ -608,13 +623,13 @@ def _plot_public_figure(
         show_labels=False,
         show_count_labels=False,
     )
-    ax_over.set_title("Overview")
+    set_panel_title(ax_over, "Overview")
     ax_over.set_xlabel("Democrats elected")
     ax_over.set_ylabel("Statewide Democratic vote share")
-    ax_over.legend(
-        handles=_public_legend_handles(),
+    _overview_legend(
+        ax_over,
+        _public_legend_handles(),
         title="Zoom labels: Number of submitted plans",
-        loc="upper left",
     )
 
     for i, chunk in enumerate(chunks):
@@ -631,7 +646,7 @@ def _plot_public_figure(
         )
         lo = chunk["statewide_dem_share"].min()
         hi = chunk["statewide_dem_share"].max()
-        ax.set_title(f"Zoom {i+1}: vote-share range {lo:.1%} to {hi:.1%}")
+        set_panel_title(ax, f"Zoom {i+1}: vote-share range {lo:.1%} to {hi:.1%}")
         if i == n_zoom - 1:
             ax.set_xlabel("Democrats elected")
         else:
@@ -665,6 +680,20 @@ def add_key(ax):
         "CJU - Chief Justice",
         "SC  - Supreme Court",
     ]
+    if paper_mode_enabled():
+        key = "\n".join("     ".join(key_lines[i : i + 3]) for i in range(0, len(key_lines), 3))
+        ax.annotate(
+            key,
+            (0, 0),
+            xycoords="axes fraction",
+            xytext=(0, -37),
+            textcoords="offset points",
+            ha="left",
+            va="top",
+            annotation_clip=False,
+        )
+        return
+
     ax.text(
         0.99,
         0.02,

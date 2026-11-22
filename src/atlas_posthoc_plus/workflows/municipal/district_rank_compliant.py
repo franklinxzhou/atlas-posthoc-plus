@@ -27,7 +27,13 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Iterable
 
-from atlas_posthoc_plus.paper import save_figure
+from atlas_posthoc_plus.paper import (
+    figure_legend,
+    official_plan_styles,
+    paper_mode_enabled,
+    save_figure,
+    set_panel_title,
+)
 
 import matplotlib
 
@@ -1013,7 +1019,7 @@ def add_reference_marks(ax, values: dict[str, float]) -> None:
 
     handles = []
 
-    for idx, (label, style) in enumerate(PLAN_STYLES.items()):
+    for idx, (label, style) in enumerate(official_plan_styles(PLAN_STYLES)):
         x = values[label]
         ax.axvline(x, zorder=10, alpha=0.95, **style)
 
@@ -1035,7 +1041,7 @@ def add_reference_marks(ax, values: dict[str, float]) -> None:
 
         handles.append(Line2D([0], [0], label=label, **style))
 
-    ax.legend(handles=handles, loc="upper right", frameon=True, fontsize=8)
+    figure_legend(ax, handles=handles, loc="upper right", frameon=True, fontsize=8)
 
 
 def plot_one_rank(
@@ -1100,7 +1106,10 @@ def plot_one_rank(
         ax.spines["right"].set_visible(False)
         ax.grid(axis="y", alpha=0.25)
 
-    fig.suptitle(f"{title_prefix}: {rank_label}")
+    if paper_mode_enabled():
+        set_panel_title(axes[0], rank_label)
+    else:
+        fig.suptitle(f"{title_prefix}: {rank_label}")
     fig.tight_layout(rect=(0, 0, 1, 0.92))
 
     output_path = Path(output_path)

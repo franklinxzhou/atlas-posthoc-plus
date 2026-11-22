@@ -30,7 +30,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from atlas_posthoc_plus.paper import save_figure
+from atlas_posthoc_plus.paper import figure_legend, official_plan_style, save_figure
 from atlas_posthoc_plus.workflows.elections.public_vote_comparison import (
     plot_public_plan_comparison,
 )
@@ -1064,8 +1064,11 @@ def plot_comparison_using_atlas_posthoc(
         ax.plot(
             g["rank"],
             g["dem_share"],
-            marker=marker_cycle[idx % len(marker_cycle)],
-            color=color_cycle[idx % len(color_cycle)],
+            **official_plan_style(
+                label,
+                marker=marker_cycle[idx % len(marker_cycle)],
+                color=color_cycle[idx % len(color_cycle)],
+            ),
             linewidth=1.6,
             markersize=4.5,
             label=label,
@@ -1077,7 +1080,7 @@ def plot_comparison_using_atlas_posthoc(
     ax.set_xlim(0.4, n_districts + 0.6)
     ax.set_xticks(x)
     ax.set_xticklabels(ordered_rank_labels(n_districts))
-    ax.legend(loc="lower right", frameon=True, fontsize=9)
+    figure_legend(ax, loc="lower right", frameon=True, fontsize=9)
 
     fig.tight_layout()
     output_path = save_figure(fig, output_path, dpi=300)

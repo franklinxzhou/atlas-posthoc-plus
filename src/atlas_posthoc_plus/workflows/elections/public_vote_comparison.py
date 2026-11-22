@@ -20,7 +20,7 @@ from matplotlib.ticker import PercentFormatter
 import numpy as np
 import pandas as pd
 
-from atlas_posthoc_plus.paper import save_figure
+from atlas_posthoc_plus.paper import figure_legend, official_plan_style, save_figure
 from atlas_posthoc_plus.workflows.elections.responsiveness_zoom import (
     PLAN_STYLES,
     apply_figure_style,
@@ -101,12 +101,12 @@ def plot_public_plan_comparison(
         line_styles = ["-", "--", "-."]
         marker_sizes = [7.2, 6.0, 4.8]
         for index, (label, values) in enumerate(officials.items()):
-            style = PLAN_STYLES[label]
+            style = official_plan_style(label, linestyle=line_styles[index], **PLAN_STYLES[label])
             line, = ax.plot(
                 x, values,
                 color=style["color"],
                 marker=style["marker"],
-                linestyle=line_styles[index],
+                linestyle=style["linestyle"],
                 linewidth=1.6,
                 markersize=marker_sizes[index],
                 markerfacecolor="white",
@@ -131,7 +131,7 @@ def plot_public_plan_comparison(
         ax.set_title(title, pad=10)
         ax.set_axisbelow(True)
         ax.grid(axis="y", color="#e6e6e6", linewidth=0.6)
-        ax.legend(handles=handles, loc="upper left", frameon=False)
+        figure_legend(ax, handles=handles, loc="upper left", frameon=False)
         fig.tight_layout()
         destination = save_figure(fig, output_path, dpi=300)
         plt.close(fig)

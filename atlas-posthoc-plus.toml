@@ -97,7 +97,7 @@ mcd_id = "COUSUBFP"
 root = "../atlas-posthoc-plus/outputs"
 
 [figures]
-# Set true for title-free Helvetica Neue figures saved as vector PDF.
+# Set true for vector PDFs with manuscript typography and labeled panels.
 paper_mode = false
 
 # Combined analysis in MCT mode or running mct-diagnostics directly.

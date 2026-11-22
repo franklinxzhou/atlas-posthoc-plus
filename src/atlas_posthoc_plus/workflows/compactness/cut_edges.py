@@ -43,7 +43,7 @@ import re
 from pathlib import Path
 from typing import Any, Iterable
 
-from atlas_posthoc_plus.paper import save_figure
+from atlas_posthoc_plus.paper import figure_legend, official_plan_style, save_figure
 
 import matplotlib
 
@@ -636,7 +636,9 @@ def plot_cut_edge_histogram(
     for _, row in official_values.iterrows():
         label = row["plan"]
         value = float(row["n_cut_edges"])
-        style = PLAN_STYLES.get(label, {"color": "black", "linestyle": "-", "linewidth": 2.0})
+        style = official_plan_style(
+            label, **PLAN_STYLES.get(label, {"color": "black", "linestyle": "-", "linewidth": 2.0})
+        )
         ax.axvline(value, zorder=10, alpha=0.95, **style)
         handles.append(Line2D([0], [0], label=f"{label}: {int(value):,}", **style))
 
@@ -646,7 +648,9 @@ def plot_cut_edge_histogram(
     ax.grid(axis="y", alpha=0.25)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    ax.legend(handles=handles, loc="upper right", frameon=True, fontsize=10, title="Reference plans")
+    figure_legend(
+        ax, handles=handles, loc="upper right", frameon=True, fontsize=10, title="Reference plans",
+    )
 
     fig.tight_layout()
     output_path = Path(output_path)

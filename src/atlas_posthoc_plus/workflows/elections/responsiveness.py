@@ -30,7 +30,7 @@ import argparse, gzip, json, re
 from pathlib import Path
 from typing import Any, Iterable
 
-from atlas_posthoc_plus.paper import save_figure
+from atlas_posthoc_plus.paper import figure_legend, official_plan_styles, save_figure
 
 import matplotlib
 matplotlib.use("Agg")
@@ -589,7 +589,7 @@ def plot(ensemble, official, races, output, title, n_districts):
             )
 
         off = official[official["race_id"] == race_id]
-        for plan_label, style in PLAN_STYLES.items():
+        for plan_label, style in official_plan_styles(PLAN_STYLES):
             row = off[off["source"] == plan_label]
             if row.empty:
                 continue
@@ -651,10 +651,10 @@ def plot(ensemble, official, races, output, title, n_districts):
         Line2D([0], [0], color=hist_edge, marker="s", linestyle="None", markerfacecolor=hist_face,
                markeredgecolor=hist_edge, markersize=10, label="Compliant ensemble histogram"),
     ]
-    for label, style in PLAN_STYLES.items():
+    for label, style in official_plan_styles(PLAN_STYLES):
         handles.append(Line2D([0], [0], marker="o", linestyle="None", markerfacecolor=style["color"],
                               markeredgecolor="black", markersize=8.5, label=label))
-    ax.legend(handles=handles, loc="upper left", frameon=True)
+    figure_legend(ax, handles=handles, loc="upper left", frameon=True)
 
     fig.tight_layout()
     output = Path(output)

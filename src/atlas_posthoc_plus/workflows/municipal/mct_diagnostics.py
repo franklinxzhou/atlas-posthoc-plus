@@ -16,7 +16,12 @@ from atlas_posthoc.io.atlas_reader import canonicalize_unit_key, infer_chain_id
 
 from atlas_posthoc_plus.io.atlas_records import iter_records
 from atlas_posthoc_plus.io.graph import read_graph_frame
-from atlas_posthoc_plus.paper import apply_paper_style, save_figure
+from atlas_posthoc_plus.paper import (
+    apply_paper_style,
+    figure_legend,
+    official_plan_style,
+    save_figure,
+)
 from atlas_posthoc_plus.workflows.municipal.compliant_histograms import (
     REFERENCE_STYLES,
     county_compliance_summary_for_assignment,
@@ -234,18 +239,19 @@ def _plot_diagnostics(out: Path, plans: pd.DataFrame, references: pd.DataFrame) 
         PLOT_REFERENCE_LABELS.items(),
         (("o", 85), ("s", 48), ("D", 22)),
     ):
+        style = official_plan_style(label, marker=marker, color=REFERENCE_STYLES[label]["color"])
         comparison.scatter(
             official.at[plan, NAIVE_METRIC],
             official.at[plan, PRIMARY_METRIC],
             s=size,
-            marker=marker,
+            marker=style["marker"],
             label=label,
             facecolor="none",
-            edgecolor=REFERENCE_STYLES[label]["color"],
+            edgecolor=style["color"],
             linewidth=1.15,
             zorder=3,
         )
-    comparison.legend(loc="upper left", frameon=True)
+    figure_legend(comparison, loc="upper left", frameon=True)
     comparison.grid(True, axis="y", alpha=0.25)
     comparison.spines[["top", "right"]].set_visible(False)
     for axis in (comparison.xaxis, comparison.yaxis):

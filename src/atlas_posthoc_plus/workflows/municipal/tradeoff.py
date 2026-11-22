@@ -15,7 +15,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from atlas_posthoc_plus.paper import save_figure
+from atlas_posthoc_plus.paper import figure_legend, official_plan_styles, save_figure
 
 import matplotlib
 
@@ -195,7 +195,7 @@ def plot_tradeoff(
         )
 
     # Official plan points.
-    for label, style in OFFICIAL_STYLES.items():
+    for label, style in official_plan_styles(OFFICIAL_STYLES):
         if label not in refs:
             continue
 
@@ -220,7 +220,7 @@ def plot_tradeoff(
 
     # Reference labels after limits are fixed.
     if label_references:
-        for label, style in OFFICIAL_STYLES.items():
+        for label, style in official_plan_styles(OFFICIAL_STYLES):
             if label not in refs:
                 continue
 
@@ -294,11 +294,12 @@ def plot_tradeoff(
             markersize=10,
             label=label,
         )
-        for label, style in OFFICIAL_STYLES.items()
+        for label, style in official_plan_styles(OFFICIAL_STYLES)
         if label in refs
     ]
 
-    legend1 = ax.legend(
+    legend1 = figure_legend(
+        ax,
         handles=chain_handles,
         title="Chains",
         loc="upper right",
@@ -308,7 +309,8 @@ def plot_tradeoff(
     )
     ax.add_artist(legend1)
 
-    ax.legend(
+    figure_legend(
+        ax,
         handles=ref_handles,
         title="Reference plans",
         loc="lower right",

@@ -15,7 +15,15 @@ import numpy as np
 import pandas as pd
 from matplotlib.ticker import MaxNLocator
 
-from atlas_posthoc_plus.paper import apply_paper_style, save_figure
+from atlas_posthoc_plus.paper import (
+    OFFICIAL_PLANS_TITLE,
+    apply_paper_style,
+    figure_legend,
+    official_plan_style,
+    paper_mode_enabled,
+    save_figure,
+    set_panel_title,
+)
 
 VOTE_COLUMNS = ["dem_votes", "rep_votes", "total_votes"]
 PLAN_STYLES = [
@@ -118,6 +126,7 @@ def plot_margins(
             axis.tick_params(axis="y", length=0)
 
         for (plan, group), style in zip(votes.groupby("plan", sort=False), PLAN_STYLES, strict=True):
+            style = official_plan_style(plan, **style)
             margins = group.set_index("district").loc[districts, "margin_pp"]
             overview.plot(margins, rows, linestyle="none", label=plan, **style)
             near = margins.abs().le(close_pp).to_numpy()
@@ -133,8 +142,17 @@ def plot_margins(
         zoom.set_xlim(-close_pp, close_pp)
         if title:
             figure.suptitle(title, x=0.08, ha="left", fontsize=13)
+        legend_placement = {"loc": "lower center"}
+        if paper_mode_enabled():
+            set_panel_title(overview, "Full range")
+            set_panel_title(zoom, f"Margins within ±{close_pp:g} percentage points")
+            legend_placement = {
+                "loc": "upper center", "bbox_to_anchor": (0.5, 0.06), "title": OFFICIAL_PLANS_TITLE,
+            }
         handles, labels = overview.get_legend_handles_labels()
-        figure.legend(handles, labels, loc="lower center", ncol=len(PLAN_STYLES), frameon=False)
+        figure_legend(
+            figure, handles, labels, ncol=len(PLAN_STYLES), frameon=False, **legend_placement,
+        )
         return save_figure(figure, output, dpi=190, bbox_inches="tight")
     finally:
         plt.close(figure)
