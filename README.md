@@ -340,7 +340,8 @@ Available suites:
   multi-ensemble marginal plots, public-plan comparison, and Place/city
   partisanship diagnostics.
 - `external`: inspect and summarize the optional outside ensemble.
-- `full`: `standard`, both compactness histograms, `municipal`, and the zoomed responsiveness figure.
+- `full`: `standard`, both compactness histograms, `municipal`, the zoomed
+  responsiveness figure, and `partisan-asymmetry` when district votes are configured.
 
 Each non-dry suite writes `suite-<name>-manifest.json` under `outputs.root`. The
 manifest records every command, return code, run time, configuration path, and
@@ -359,6 +360,71 @@ Use `--keep-going` to continue after a failed workflow:
 ```bash
 atlas-posthoc-plus suite full --keep-going
 ```
+
+## Partisan asymmetry across three plans
+
+`partisan-asymmetry` compares district margins for the same election across
+three plans. Paper mode writes a vector PDF with the full range in panel (a)
+and the near-zero zoom in panel (b).
+
+```bash
+aph-plus --config election.toml --paper-mode run partisan-asymmetry
+```
+
+Set `inputs.district_votes_csv` to a CSV with the columns
+`plan,district,dem_votes,rep_votes,total_votes`. Supply one row per district on
+each of three plans with the same set of district numbers. If you have
+precinct-level returns, the recast workflow below can produce these totals.
+The `full` suite runs this analysis when `inputs.district_votes_csv` is set.
+
+The figure uses `100 * (dem_votes - rep_votes) / total_votes`, with minor-party
+and write-in votes included in `total_votes`. Seat counts compare the two
+major parties, and exact ties are counted separately. The full view connects estimates
+with the same district number, which can cover different territory across plans.
+The zoom shares the district rows of the full view and uses nested marker sizes
+to show coincident margins. Set `workflow.partisan-asymmetry.close_pp`
+to choose the zoom and close-win threshold (default 5 percentage points). The
+companion `-summary.csv` reports each party's seat count and the count and share
+of those wins within the threshold. Their difference is the Democratic
+close-win share minus the Republican close-win share, in percentage points.
+The summary also gives each party's closest win and the signed margin at the
+majority cutoff, after ordering districts from most to least Democratic.
+
+### Recasting precinct-level returns
+
+`recast-precinct-votes` aggregates the same precinct returns under three plans
+using matched census blocks. Prepare these two CSVs for a single election:
+
+- `inputs.precinct_votes_csv` has `county,precinct,source_district,real_precinct,dem_votes,rep_votes,other_votes`.
+  Use the election-day district ID as `source_district`, so a precinct split by
+  that map has a separate row for each piece. Mark administrative buckets
+  `false` and include their county and source district.
+- `inputs.election_block_crosswalk_csv` has
+  `block_id,county,precinct,source_district,vap,population,land_area` plus the
+  district assignment column for each alternate map. Each block occurs once.
+  Use a block assignment file for each plan or match each block's representative
+  point to a district polygon. For the precinct match, use the election-year
+  precinct polygons and the nearest precinct for points outside them. Match
+  the county and precinct identifiers in the returns.
+
+Set the plan labels and columns in display order:
+
+```toml
+[workflow.recast-precinct-votes]
+plans = ["Plan A=district_a", "Plan B=district_b", "Plan C=source_district"]
+```
+
+Run `aph-plus --config election.toml run recast-precinct-votes`. The workflow
+distributes administrative votes by party in proportion to real-precinct votes
+in the same county and source district. It spreads each piece's votes only
+among blocks sharing its precinct and source district, weighted by voting-age
+population. If the piece's total weight is zero, it uses total population and
+then land area. It sums the same estimated block votes on each plan and writes
+`elections/recast-district-votes.csv` under `outputs.root`. Set
+`inputs.district_votes_csv` to the output path before running `partisan-asymmetry`.
+The reconciliation CSV shows reported, re-aggregated, and unallocated votes
+by county, source district, and party. Check the source-map discrepancies
+against the published margins before interpreting close results on any map.
 
 ## Output dependencies
 
@@ -699,6 +765,8 @@ layer covering the manifest's metro areas.
 | `reock-histogram` | `workflows.compactness.reock_histogram` | Reock histogram with public/official overlays |
 | `ranked-vote-cvap` | `workflows.demographics.ranked_vote_cvap` | Vote/CVAP ranked comparison |
 | `regional-african-american-cvap` | `workflows.demographics.regional_black_cvap` | District-level CUA/MSA African American-CVAP location quotients |
+| `partisan-asymmetry` | `workflows.elections.partisan_asymmetry` | Three-plan district margin comparison and near-zero zoom |
+| `recast-precinct-votes` | `workflows.elections.recast_precinct_votes` | Recast precinct returns on three maps with a source-map reconciliation |
 | `responsiveness` | `workflows.elections.responsiveness` | Multi-election responsiveness |
 | `responsiveness-zoom` | `workflows.elections.responsiveness_zoom` | Zoomed responsiveness panels |
 | `municipal-histograms` | `workflows.municipal.histograms` | Pooled municipal histograms |

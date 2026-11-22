@@ -33,7 +33,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from atlas_posthoc_plus.paper import save_figure
+from atlas_posthoc_plus.paper import apply_paper_style, save_figure
 
 import numpy as np
 import pandas as pd
@@ -99,6 +99,7 @@ def apply_figure_style() -> None:
             "ps.fonttype": 42,
         }
     )
+    apply_paper_style()
 
 
 def parse_args() -> argparse.Namespace:

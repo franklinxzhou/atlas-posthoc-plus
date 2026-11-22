@@ -2,10 +2,12 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from atlas_posthoc_plus import suite
 from atlas_posthoc_plus.config import load_config
 from atlas_posthoc_plus.io.chain_sweep import SWEEP_DIR_ENV, SWEEP_LIMIT_ENV
-from atlas_posthoc_plus.registry import Binding, WorkflowSpec
+from atlas_posthoc_plus.registry import SUITES, Binding, WorkflowSpec
 from atlas_posthoc_plus.suite import run_suite
 
 
@@ -213,3 +215,23 @@ root = "results"
         (project / "results/suite-test-manifest.json").read_text(encoding="utf-8")
     )
     assert manifest["results"] == []
+
+
+@pytest.mark.parametrize("with_votes", [True, False])
+def test_full_suite_partisan_asymmetry_uses_configured_votes(tmp_path, capsys, with_votes):
+    workflow = "partisan-asymmetry"
+    assert workflow in SUITES["full"]
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        '[inputs]\ndistrict_votes_csv = "district-votes.csv"\n' if with_votes else "",
+        encoding="utf-8",
+    )
+
+    assert run_suite("full", [workflow], load_config(config_path), dry_run=True) == 0
+
+    output = capsys.readouterr().out
+    if with_votes:
+        assert f"==> {workflow}" in output
+        assert "--district-votes" in output
+    else:
+        assert f"Skipping {workflow}: inputs.district_votes_csv is not configured" in output

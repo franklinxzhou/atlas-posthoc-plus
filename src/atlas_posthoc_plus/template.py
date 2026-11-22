@@ -49,6 +49,8 @@ block_metadata = "inputs/blocks.shp"
 block_shapefile = "inputs/blocks.shp"
 mcd_shapefile = "inputs/mcd.shp"
 target_precincts = "inputs/precincts.shp"
+# To include partisan-asymmetry in the full suite, supply a district vote CSV.
+# district_votes_csv = "outputs/elections/recast-district-votes.csv"
 cvap_file = "inputs/cvap.zip"
 public_plan_dir = "inputs/plans/public"
 other_csv = "inputs/external/ensemble.csv"

@@ -29,6 +29,7 @@ def apply_paper_style() -> None:
     mpl.rcParams.update(
         {
             "font.family": "sans-serif",
+            "font.size": 10,
             "font.sans-serif": [
                 "Helvetica Neue",
                 "Helvetica",
@@ -82,7 +83,9 @@ def _distinct_panel_axes(figure: Any) -> list[Any]:
 
 def _prepare_paper_figure(figure: Any) -> None:
     for axis in figure.axes:
-        axis.set_title("")
+        for location in ("left", "center", "right"):
+            if axis.get_title(loc=location):
+                axis.set_title("", loc=location)
 
     suptitle = getattr(figure, "_suptitle", None)
     if suptitle is not None:
