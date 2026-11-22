@@ -10,6 +10,7 @@ from atlas_posthoc_plus.workflows.elections.recast_precinct_votes import recast_
 
 @pytest.fixture
 def district_votes(tmp_path):
+    # 2026 General Election data in Ohio in preparation
     source = tmp_path / "district-votes.csv"
     source.write_text(
         "plan,district,dem_votes,rep_votes,total_votes\n"
