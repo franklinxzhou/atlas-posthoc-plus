@@ -29,7 +29,7 @@ def _parser() -> argparse.ArgumentParser:
         dest="paper_mode",
         action="store_true",
         default=None,
-        help="Write title-free, publication-style vector PDF figures.",
+        help="Write publication-style vector PDFs with consistent typography and panel labels.",
     )
     figure_mode.add_argument(
         "--no-paper-mode",

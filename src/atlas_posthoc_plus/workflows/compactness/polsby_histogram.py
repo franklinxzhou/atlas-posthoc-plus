@@ -10,7 +10,13 @@ import json
 from pathlib import Path
 from typing import Any
 
-from atlas_posthoc_plus.paper import save_figure
+from atlas_posthoc_plus.paper import (
+    figure_legend,
+    official_plan_label,
+    official_plan_style,
+    paper_mode_enabled,
+    save_figure,
+)
 
 import matplotlib
 
@@ -567,21 +573,29 @@ def add_reference_rug(
         )
 
     if not official_df.empty:
-        ax.scatter(
-            official_df["score"],
-            np.zeros(len(official_df)),
-            marker="x",
-            s=95,
-            color="black",
-            linewidths=2.0,
-            label=official_label,
-            zorder=8,
-        )
+        if not paper_mode_enabled():
+            ax.scatter(
+                official_df["score"],
+                np.zeros(len(official_df)),
+                marker="x",
+                s=95,
+                color="black",
+                linewidths=2.0,
+                label=official_label,
+                zorder=8,
+            )
 
         label_offsets = [10, 26, 42]
         for i, row in official_df.reset_index(drop=True).iterrows():
+            label = official_plan_label(str(row["label"]))
+            style = official_plan_style(label, marker="x", color="black")
+            if paper_mode_enabled():
+                ax.plot(
+                    row["score"], 0, label=label, **style,
+                    markersize=7, markerfacecolor="none", markeredgewidth=1.3, zorder=8,
+                )
             ax.annotate(
-                str(row["label"]),
+                label,
                 xy=(row["score"], 0),
                 xytext=(0, label_offsets[i % len(label_offsets)]),
                 textcoords="offset points",
@@ -589,11 +603,12 @@ def add_reference_rug(
                 va="bottom",
                 rotation=35,
                 fontsize=9,
+                color=style["color"],
                 annotation_clip=False,
                 arrowprops={
                     "arrowstyle": "-",
                     "linewidth": 0.8,
-                    "color": "black",
+                    "color": style["color"],
                     "shrinkA": 0,
                     "shrinkB": 4,
                 },
@@ -663,7 +678,7 @@ def plot_histogram(
     ax.set_xlabel(stat_label)
     ax.set_ylabel("Density" if density else "Number of saved plans")
     ax.set_title(title or f"Ohio congressional {stat_label.lower()} distribution")
-    ax.legend(frameon=False, loc="upper left")
+    figure_legend(ax, frameon=False, loc="upper left")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 

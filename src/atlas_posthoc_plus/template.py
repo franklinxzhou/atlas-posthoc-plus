@@ -100,7 +100,7 @@ mcd_id = "COUSUBFP"
 root = "outputs"
 
 [figures]
-# Set true for title-free Helvetica Neue figures saved as vector PDF.
+# Set true for vector PDFs with manuscript typography and labeled panels.
 paper_mode = false
 
 # Combined analysis in MCT mode or running mct-diagnostics directly. Use the
@@ -158,6 +158,7 @@ reuse_public_summary = true
 # '''
 # widths = [1, 1, 0.85]
 # heights = [1, 1]
+# Omit width and height to keep the original point sizes.
 # width = 10
 # height = 6.5
 #

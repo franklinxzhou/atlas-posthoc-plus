@@ -10,7 +10,13 @@ import numpy as np
 import pandas as pd
 
 from atlas_posthoc_plus.config import ProjectConfig, load_config
-from atlas_posthoc_plus.paper import apply_paper_style, save_figure
+from atlas_posthoc_plus.paper import (
+    apply_paper_style,
+    official_plan_label,
+    official_plan_style,
+    paper_mode_enabled,
+    save_figure,
+)
 from atlas_posthoc_plus.workflows.municipal.geography import municipality_name_for_traces
 from atlas_posthoc_plus.workflows.municipal.mct_diagnostics import PLOT_REFERENCE_LABELS
 from atlas_posthoc_plus.workflows.municipal.tradeoff import load_json, normalize_reference_summaries
@@ -72,8 +78,22 @@ def _mark_plans(ax: Axes, references: dict[str, float], edges: np.ndarray) -> No
         right = 1 - margin - gap * (count - index - 1)
         center = min(max(target, previous + gap), right)
         previous = center
+        arrow_color = "black"
+        if len(labels) == 1:
+            arrow_color = official_plan_style(labels[0], color=arrow_color)["color"]
+        if paper_mode_enabled():
+            for mark_index, label in enumerate(labels):
+                ax.plot(
+                    value, 0,
+                    **official_plan_style(label, marker="o", color="black"),
+                    transform=ax.get_xaxis_transform(),
+                    markersize=max(4, 8 - 2 * mark_index),
+                    markerfacecolor="none",
+                    clip_on=False,
+                    zorder=6,
+                )
         ax.annotate(
-            "\n".join(labels),
+            "\n".join(official_plan_label(label) for label in labels),
             xy=(value, 0),
             xycoords=ax.get_xaxis_transform(),
             xytext=(center, 0.30),
@@ -82,7 +102,7 @@ def _mark_plans(ax: Axes, references: dict[str, float], edges: np.ndarray) -> No
             va="bottom",
             fontsize=9,
             color="black",
-            arrowprops={"arrowstyle": "->", "color": "black", "lw": 0.9, "shrinkB": 0},
+            arrowprops={"arrowstyle": "->", "color": arrow_color, "lw": 0.9, "shrinkB": 0},
             zorder=5,
         )
 

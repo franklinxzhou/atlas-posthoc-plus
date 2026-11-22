@@ -40,7 +40,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from atlas_posthoc_plus.paper import save_figure
+from atlas_posthoc_plus.paper import figure_legend, official_plan_style, save_figure
 
 import matplotlib
 
@@ -222,9 +222,12 @@ def plot_trace_with_references(
     ).fillna(999)
     reference_df = reference_df.sort_values("__order__")
 
+    ref_handles = []
     for _, row in reference_df.iterrows():
         label = str(row["plan"])
-        style = PLAN_STYLES.get(label, {"color": "black", "linestyle": ":", "linewidth": 2.2})
+        style = official_plan_style(
+            label, **PLAN_STYLES.get(label, {"color": "black", "linestyle": ":", "linewidth": 2.2})
+        )
         y = float(row[metric])
         all_y.append(y)
 
@@ -236,6 +239,9 @@ def plot_trace_with_references(
             alpha=0.95,
             zorder=5,
         )
+        ref_handles.append(Line2D(
+            [0], [0], color=style["color"], linestyle=style["linestyle"], lw=2.5, label=label
+        ))
 
     ax.set_title(title or f"Congressional {metric} Polsby-Popper trace", fontsize=20, pad=12)
     ax.set_xlabel("Proposal", fontsize=15)
@@ -259,19 +265,8 @@ def plot_trace_with_references(
         for i, tr in enumerate(traces)
     ]
 
-    ref_handles = [
-        Line2D(
-            [0],
-            [0],
-            color=PLAN_STYLES.get(row["plan"], {"color": "black"})["color"],
-            linestyle=PLAN_STYLES.get(row["plan"], {"linestyle": ":"})["linestyle"],
-            lw=2.5,
-            label=row["plan"],
-        )
-        for _, row in reference_df.iterrows()
-    ]
-
-    legend1 = ax.legend(
+    legend1 = figure_legend(
+        ax,
         handles=chain_handles,
         title="Chains",
         loc="upper right",
@@ -281,7 +276,8 @@ def plot_trace_with_references(
     )
     ax.add_artist(legend1)
 
-    ax.legend(
+    figure_legend(
+        ax,
         handles=ref_handles,
         title="Official plans",
         loc="lower right",

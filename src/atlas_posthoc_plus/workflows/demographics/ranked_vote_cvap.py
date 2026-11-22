@@ -39,7 +39,13 @@ import zipfile
 from pathlib import Path
 from typing import Any, Iterable
 
-from atlas_posthoc_plus.paper import save_figure
+from atlas_posthoc_plus.paper import (
+    figure_legend,
+    official_plan_style,
+    paper_mode_enabled,
+    save_figure,
+    set_panel_title,
+)
 
 import matplotlib
 
@@ -1026,7 +1032,7 @@ def draw_rank_panel(
     )
 
     for label, vec in official_vectors.items():
-        style = PLAN_STYLES[label]
+        style = official_plan_style(label, **PLAN_STYLES[label])
         ax.plot(
             positions,
             vec,
@@ -1041,7 +1047,7 @@ def draw_rank_panel(
     if horizontal_line is not None:
         ax.axhline(horizontal_line, color="black", linewidth=1.2, linestyle="--", alpha=0.8)
 
-    ax.set_title(title)
+    set_panel_title(ax, title)
     ax.set_ylabel(ylabel)
     ax.set_xticks(positions)
     ax.set_xticklabels(rank_labels(n_districts))
@@ -1066,13 +1072,15 @@ def plot_two_panel(
     n_districts: int,
 ) -> None:
     fig, axes = plt.subplots(2, 1, figsize=(13, 9), sharex=True)
+    paper = paper_mode_enabled()
 
     draw_rank_panel(
         axes[0],
         ensemble_dem,
         official_dem,
         ylabel="Democratic two-party vote share",
-        title="Panel A: Democratic vote share by district rank",
+        title=("Democratic vote share by district rank" if paper
+               else "Panel A: Democratic vote share by district rank"),
         n_districts=n_districts,
         percent_axis=True,
         horizontal_line=0.5,
@@ -1083,7 +1091,8 @@ def plot_two_panel(
         ensemble_black,
         official_black,
         ylabel=black_label,
-        title="Panel B: Black CVAP share by the same district rank",
+        title=("Black CVAP share by the same district rank" if paper
+               else "Panel B: Black CVAP share by the same district rank"),
         n_districts=n_districts,
         percent_axis=True,
         horizontal_line=0.5,
@@ -1092,7 +1101,8 @@ def plot_two_panel(
     axes[1].set_xlabel("Districts ordered from most Republican to most Democratic")
 
     handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(
+    figure_legend(
+        fig,
         handles,
         labels,
         loc="lower center",

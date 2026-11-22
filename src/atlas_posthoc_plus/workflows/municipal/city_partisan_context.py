@@ -15,7 +15,12 @@ from pathlib import Path
 import re
 from typing import Any, Mapping, Sequence
 
-from atlas_posthoc_plus.paper import save_figure
+from atlas_posthoc_plus.paper import (
+    figure_legend,
+    official_plan_style,
+    paper_mode_enabled,
+    save_figure,
+)
 
 import matplotlib
 
@@ -653,14 +658,21 @@ def summarize_context_metrics(
     )
 
 
+def _official_line_style(label: str) -> dict[str, Any]:
+    return official_plan_style(
+        label,
+        color=PLAN_COLORS.get(label, "#555555"),
+        linestyle=PLAN_LINESTYLES.get(label, "-"),
+        linewidth=1.8,
+    )
+
+
 def _official_plan_handles(official: pd.DataFrame) -> list[Line2D]:
     return [
         Line2D(
             [0],
             [0],
-            color=PLAN_COLORS.get(row.official_plan, "#555555"),
-            linestyle=PLAN_LINESTYLES.get(row.official_plan, "-"),
-            lw=1.8,
+            **_official_line_style(row.official_plan),
             label=row.official_plan,
         )
         for row in official.itertuples(index=False)
@@ -676,9 +688,7 @@ def _plot_official_plan_lines(
         label = row.official_plan
         axis.axvline(
             getattr(row, value_column),
-            color=PLAN_COLORS.get(label, "#555555"),
-            linestyle=PLAN_LINESTYLES.get(label, "-"),
-            lw=1.8,
+            **_official_line_style(label),
             ymax=0.84,
         )
     return _official_plan_handles(official)
@@ -740,7 +750,12 @@ def _plot_signed_context_panel(
     )
     handles = _plot_official_plan_lines(axis, official, "signed_displacement")
     if show_legend:
-        axis.legend(handles=handles, loc="center right")
+        if paper_mode_enabled():
+            figure_legend(
+                axis, handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.16), ncols=3,
+            )
+        else:
+            figure_legend(axis, handles=handles, loc="center right")
 
 
 def plot_city_context_signed(

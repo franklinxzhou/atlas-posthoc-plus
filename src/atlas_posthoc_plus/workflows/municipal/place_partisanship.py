@@ -14,7 +14,13 @@ import re
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from atlas_posthoc_plus.paper import apply_paper_style, save_figure
+from atlas_posthoc_plus.paper import (
+    apply_paper_style,
+    figure_legend,
+    official_plan_style,
+    save_figure,
+    set_panel_title,
+)
 
 import matplotlib
 
@@ -506,7 +512,7 @@ def plot_place_ousted_share_by_partisanship(
 
     for index, (ax, plan) in enumerate(zip(axes[0], plans)):
         panel = rows[rows["official_plan"] == plan].copy()
-        color = PLAN_COLORS.get(plan, "#6A3D9A")
+        style = official_plan_style(plan, color=PLAN_COLORS.get(plan, "#6A3D9A"), marker="o")
         x = panel["dem_two_party_share"].to_numpy(float)
         ax.vlines(
             x,
@@ -530,7 +536,7 @@ def plot_place_ousted_share_by_partisanship(
             x,
             panel["ousted_population_share"],
             s=_point_sizes(panel["place_population"]),
-            color=color,
+            **style,
             edgecolor="white",
             linewidth=0.45,
             alpha=0.82,
@@ -542,7 +548,7 @@ def plot_place_ousted_share_by_partisanship(
             value_col="ousted_population_share",
             count=label_count,
         )
-        ax.set_title(plan)
+        set_panel_title(ax, plan)
         ax.set_xlim(-0.02, 1.02)
         ax.set_ylim(-0.015 * upper, upper)
         ax.xaxis.set_major_formatter(PercentFormatter(1.0, decimals=0))
@@ -550,7 +556,8 @@ def plot_place_ousted_share_by_partisanship(
         ax.margins(0.04)
         if index == 0:
             ax.set_ylabel("Place population outside its largest district")
-            ax.legend(
+            figure_legend(
+                ax,
                 handles=[
                     Line2D([0], [0], color="#B9B9B9", lw=2, label="Ensemble middle 50%"),
                     Line2D(
@@ -617,13 +624,13 @@ def plot_place_ousted_share_residual_by_partisanship(
 
     for index, (ax, plan) in enumerate(zip(axes[0], plans)):
         panel = rows[rows["official_plan"] == plan].copy()
-        color = PLAN_COLORS.get(plan, "#6A3D9A")
+        style = official_plan_style(plan, color=PLAN_COLORS.get(plan, "#6A3D9A"), marker="o")
         ax.axhline(0, color="#555555", lw=0.8, zorder=1)
         ax.scatter(
             panel["dem_two_party_share"],
             panel["official_minus_ensemble_median"],
             s=_point_sizes(panel["place_population"]),
-            color=color,
+            **style,
             edgecolor="white",
             linewidth=0.45,
             alpha=0.82,
@@ -635,7 +642,7 @@ def plot_place_ousted_share_residual_by_partisanship(
             value_col="official_minus_ensemble_median",
             count=label_count,
         )
-        ax.set_title(plan)
+        set_panel_title(ax, plan)
         ax.set_xlim(-0.02, 1.02)
         ax.set_ylim(-limit, limit)
         ax.xaxis.set_major_formatter(PercentFormatter(1.0, decimals=0))

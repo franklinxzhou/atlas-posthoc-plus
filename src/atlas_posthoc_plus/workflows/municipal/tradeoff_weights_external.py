@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from atlas_posthoc_plus.paper import save_figure
+from atlas_posthoc_plus.paper import figure_legend, official_plan_styles, save_figure
 
 import matplotlib
 
@@ -1151,7 +1151,7 @@ def plot_tradeoff(
         )
 
     # Official plan points.
-    for label, style in OFFICIAL_STYLES.items():
+    for label, style in official_plan_styles(OFFICIAL_STYLES):
         if label not in refs:
             continue
         x = float(refs[label]["n_cut_municipalities"])
@@ -1174,7 +1174,7 @@ def plot_tradeoff(
     ax.set_ylim(*ylim)
 
     if label_references:
-        for label, style in OFFICIAL_STYLES.items():
+        for label, style in official_plan_styles(OFFICIAL_STYLES):
             if label not in refs:
                 continue
             x = float(refs[label]["n_cut_municipalities"])
@@ -1317,11 +1317,12 @@ def plot_tradeoff(
             markersize=10,
             label=label,
         )
-        for label, style in OFFICIAL_STYLES.items()
+        for label, style in official_plan_styles(OFFICIAL_STYLES)
         if label in refs
     ]
 
-    legend1 = ax.legend(
+    legend1 = figure_legend(
+        ax,
         handles=collection_handles,
         title="Plan collections",
         loc="upper right",
@@ -1332,7 +1333,8 @@ def plot_tradeoff(
     ax.add_artist(legend1)
 
     if public_handles:
-        legend2 = ax.legend(
+        legend2 = figure_legend(
+            ax,
             handles=public_handles,
             title="Public plans",
             loc="center right",
@@ -1343,7 +1345,8 @@ def plot_tradeoff(
         ax.add_artist(legend2)
 
     if other_handles:
-        legend3 = ax.legend(
+        legend3 = figure_legend(
+            ax,
             handles=other_handles,
             title="External plans",
             loc="lower center",
@@ -1353,7 +1356,8 @@ def plot_tradeoff(
         )
         ax.add_artist(legend3)
 
-    ax.legend(
+    figure_legend(
+        ax,
         handles=ref_handles,
         title="Official plans",
         loc="lower right",

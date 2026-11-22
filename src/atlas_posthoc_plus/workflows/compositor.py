@@ -5,13 +5,21 @@ import io
 import math
 import sys
 import tempfile
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from pypdf import PageObject, PdfReader, PdfWriter, Transformation
 
 from atlas_posthoc_plus.config import ConfigError, ProjectConfig, load_config
+from atlas_posthoc_plus.paper import (
+    PAPER_FONT_FAMILY,
+    PAPER_PANEL_SIZE,
+    PAPER_PANEL_WEIGHT,
+    PAPER_SANS_SERIF,
+    panel_tag,
+)
 
 SECTION = "workflow.figure-compositor"
 SPACERS = {"#", "."}
@@ -46,8 +54,8 @@ class Composition:
     design: tuple[tuple[str | None, ...], ...]
     widths: tuple[float, ...]
     heights: tuple[float, ...]
-    width: float
-    height: float
+    width: float | None
+    height: float | None
     margins: Margins
     column_gap: float
     row_gap: float
@@ -116,10 +124,6 @@ def _default_panel_id(index: int) -> str:
         value, remainder = divmod(value - 1, 26)
         result = chr(ord("A") + remainder) + result
     return result
-
-
-def _automatic_tag(index: int) -> str:
-    return f"({_default_panel_id(index).lower()})"
 
 
 def _parse_panels(config: ProjectConfig, section: Mapping[str, Any]) -> tuple[Panel, ...]:
@@ -393,31 +397,30 @@ def parse_composition(config: ProjectConfig) -> Composition:
         section.get("row_gap", gap), SECTION + ".row_gap", nonnegative=True
     )
 
-    width = _number(
-        section.get("width", 3.25 * ncols),
-        SECTION + ".width",
-        positive=True,
+    width = (
+        _number(section["width"], SECTION + ".width", positive=True)
+        if "width" in section else None
     )
-    height = _number(
-        section.get("height", 2.5 * nrows),
-        SECTION + ".height",
-        positive=True,
+    height = (
+        _number(section["height"], SECTION + ".height", positive=True)
+        if "height" in section
+        else None
     )
-    if width <= margins.left + margins.right + column_gap * (ncols - 1):
+    if width is not None and width <= margins.left + margins.right + column_gap * (ncols - 1):
         raise ConfigError("canvas width is too small for its margins and column gaps")
-    if height <= margins.top + margins.bottom + row_gap * (nrows - 1):
+    if height is not None and height <= margins.top + margins.bottom + row_gap * (nrows - 1):
         raise ConfigError("canvas height is too small for its margins and row gaps")
 
     tags = section.get("tags", True)
     if not isinstance(tags, bool):
         raise ConfigError(f"configuration value {SECTION + '.tags'!r} must be boolean")
 
-    tag_weight = section.get("tag_weight", "bold")
+    tag_weight = section.get("tag_weight", PAPER_PANEL_WEIGHT)
     if not isinstance(tag_weight, str) or not tag_weight:
         raise ConfigError(
             f"configuration value {SECTION + '.tag_weight'!r} must be a string"
         )
-    font_family = section.get("font_family", "sans-serif")
+    font_family = section.get("font_family", PAPER_FONT_FAMILY)
     if not isinstance(font_family, str) or not font_family:
         raise ConfigError(
             f"configuration value {SECTION + '.font_family'!r} must be a string"
@@ -435,7 +438,7 @@ def parse_composition(config: ProjectConfig) -> Composition:
         row_gap=row_gap,
         tags=tags,
         tag_size=_number(
-            section.get("tag_size", 11), SECTION + ".tag_size", positive=True
+            section.get("tag_size", PAPER_PANEL_SIZE), SECTION + ".tag_size", positive=True
         ),
         tag_weight=tag_weight,
         tag_offset_x=_number(
@@ -468,18 +471,17 @@ def _axis_segments(
     return tuple(result)
 
 
-def panel_boxes(composition: Composition) -> tuple[PanelBox, ...]:
-    """Calculate panel areas in inches, preserving panel declaration order."""
+def _panel_boxes(composition: Composition, width: float, height: float) -> tuple[PanelBox, ...]:
     nrows = len(composition.design)
     ncols = len(composition.design[0])
     available_width = (
-        composition.width
+        width
         - composition.margins.left
         - composition.margins.right
         - composition.column_gap * (ncols - 1)
     )
     available_height = (
-        composition.height
+        height
         - composition.margins.top
         - composition.margins.bottom
         - composition.row_gap * (nrows - 1)
@@ -528,6 +530,15 @@ def panel_boxes(composition: Composition) -> tuple[PanelBox, ...]:
     return tuple(boxes)
 
 
+def panel_boxes(composition: Composition) -> tuple[PanelBox, ...]:
+    """Calculate panel areas in inches, preserving panel declaration order."""
+    if composition.width is not None and composition.height is not None:
+        return _panel_boxes(composition, composition.width, composition.height)
+    pages = [_read_source_page(panel) for panel in composition.panels]
+    width, height, _, _ = _canvas_layout(composition, pages)
+    return _panel_boxes(composition, width, height)
+
+
 def _read_source_page(panel: Panel) -> PageObject:
     if not panel.figure_path.is_file():
         raise ConfigError(
@@ -559,35 +570,98 @@ def _aligned_offset(extra: float, alignment: str) -> float:
     return extra
 
 
-def _merge_panel(canvas: PageObject, box: PanelBox) -> None:
-    page = _read_source_page(box.panel)
+def _source_size(panel: Panel, page: PageObject) -> tuple[float, float]:
+    """Read a PDF's visible width and height in inches."""
     source_box = page.cropbox
-    source_width = float(source_box.width)
-    source_height = float(source_box.height)
+    inches_per_unit = float(page.user_unit) / POINTS_PER_INCH
+    source_width = float(source_box.width) * inches_per_unit
+    source_height = float(source_box.height) * inches_per_unit
     if source_width <= 0 or source_height <= 0:
-        raise ConfigError(f"panel {box.panel.id!r} PDF page has an empty crop box")
+        raise ConfigError(f"panel {panel.id!r} PDF page has an empty crop box")
+    return source_width, source_height
 
-    box_left = box.left * POINTS_PER_INCH
-    box_bottom = box.bottom * POINTS_PER_INCH
-    box_width = box.width * POINTS_PER_INCH
-    box_height = box.height * POINTS_PER_INCH
-    scale = min(box_width / source_width, box_height / source_height)
-    placed_width = source_width * scale
-    placed_height = source_height * scale
-    target_x = box_left + _aligned_offset(
-        box_width - placed_width, box.panel.horizontal_align
+
+def _canvas_layout(
+    composition: Composition,
+    pages: Sequence[PageObject],
+) -> tuple[float, float, float, float]:
+    """Resolve canvas dimensions, a common panel scale, and the tag gutter in inches."""
+    source_sizes = [
+        _source_size(panel, page) for panel, page in zip(composition.panels, pages, strict=True)
+    ]
+    tag_gutter = 0.0
+    if any(
+        _tag_label(panel, index, composition.tags) for index, panel in enumerate(composition.panels)
+    ):
+        tag_gutter = composition.tag_offset_y + 1.25 * composition.tag_size / POINTS_PER_INCH
+
+    nrows, ncols = len(composition.design), len(composition.design[0])
+    gutter_width = (
+        composition.margins.left + composition.margins.right + (ncols - 1) * composition.column_gap
     )
-    target_y = box_bottom + _aligned_offset(
-        box_height - placed_height, box.panel.vertical_align
+    gutter_height = (
+        composition.margins.top + composition.margins.bottom + (nrows - 1) * composition.row_gap
+    )
+    # Spanning cells contain their fixed intervening gaps as well as a fraction
+    # of the usable canvas. Measure each contribution using zero and one inch.
+    gap_boxes = _panel_boxes(composition, gutter_width, gutter_height)
+    unit_boxes = _panel_boxes(composition, gutter_width + 1, gutter_height + 1)
+    columns = [
+        (source_width, unit.width - gap.width, gap.width)
+        for (source_width, _), unit, gap in zip(source_sizes, unit_boxes, gap_boxes, strict=True)
+    ]
+    rows = [
+        (source_height, unit.height - gap.height, gap.height - tag_gutter)
+        for (_, source_height), unit, gap in zip(source_sizes, unit_boxes, gap_boxes, strict=True)
+    ]
+
+    scale = 1.0
+    if composition.width is not None:
+        available = composition.width - gutter_width
+        scale = min(
+            scale, min((available * fraction + gap) / size for size, fraction, gap in columns)
+        )
+    if composition.height is not None:
+        available = composition.height - gutter_height
+        scale = min(scale, min((available * fraction + gap) / size for size, fraction, gap in rows))
+    if scale <= 0:
+        raise ConfigError("canvas height is too small for its panel tags")
+
+    width = composition.width
+    if width is None:
+        needed = max((size * scale - gap) / fraction for size, fraction, gap in columns)
+        width = gutter_width + max(needed, 1 / POINTS_PER_INCH)
+    height = composition.height
+    if height is None:
+        needed = max((size * scale - gap) / fraction for size, fraction, gap in rows)
+        height = gutter_height + max(needed, 1 / POINTS_PER_INCH)
+    return width, height, scale, tag_gutter
+
+
+def _merge_panel(
+    canvas: PageObject,
+    box: PanelBox,
+    page: PageObject,
+    scale: float,
+    tag_gutter: float,
+) -> tuple[float, float]:
+    source_box = page.cropbox
+    source_width, source_height = _source_size(box.panel, page)
+    target_x = box.left + _aligned_offset(
+        box.width - source_width * scale, box.panel.horizontal_align
+    )
+    target_y = box.bottom + _aligned_offset(
+        box.height - tag_gutter - source_height * scale, box.panel.vertical_align
     )
 
     transform = (
         Transformation()
         .translate(tx=-float(source_box.left), ty=-float(source_box.bottom))
-        .scale(scale)
-        .translate(tx=target_x, ty=target_y)
+        .scale(scale * float(page.user_unit))
+        .translate(tx=target_x * POINTS_PER_INCH, ty=target_y * POINTS_PER_INCH)
     )
     canvas.merge_transformed_page(page, transform, over=True, expand=False)
+    return target_x, target_y + source_height * scale
 
 
 def _tag_label(panel: Panel, index: int, enabled: bool) -> str | None:
@@ -596,16 +670,20 @@ def _tag_label(panel: Panel, index: int, enabled: bool) -> str | None:
     if isinstance(panel.tag, str):
         return panel.tag
     if panel.tag is True or enabled:
-        return _automatic_tag(index)
+        return panel_tag(index)
     return None
 
 
-def _tag_overlay(composition: Composition, boxes: Sequence[PanelBox]) -> PageObject | None:
+def _tag_overlay(
+    composition: Composition,
+    panel_corners: Sequence[tuple[float, float]],
+    width: float,
+    height: float,
+) -> PageObject | None:
     labels = [
-        (box, _tag_label(box.panel, index, composition.tags))
-        for index, box in enumerate(boxes)
+        _tag_label(panel, index, composition.tags) for index, panel in enumerate(composition.panels)
     ]
-    if not any(label for _, label in labels):
+    if not any(labels):
         return None
 
     import matplotlib as mpl
@@ -615,31 +693,25 @@ def _tag_overlay(composition: Composition, boxes: Sequence[PanelBox]) -> PageObj
     with mpl.rc_context(
         {
             "font.family": composition.font_family,
-            "font.sans-serif": [
-                "Helvetica Neue",
-                "Helvetica",
-                "Arial",
-                "DejaVu Sans",
-            ],
+            "font.sans-serif": PAPER_SANS_SERIF,
             "pdf.fonttype": 42,
+            "savefig.bbox": None,
         }
     ):
-        figure = Figure(figsize=(composition.width, composition.height))
+        figure = Figure(figsize=(width, height))
         FigureCanvasPdf(figure)
         figure.patch.set_alpha(0)
-        for box, label in labels:
+        for (left, top), label in zip(panel_corners, labels, strict=True):
             if not label:
                 continue
-            x = (box.left + composition.tag_offset_x) / composition.width
-            y = (
-                box.bottom + box.height - composition.tag_offset_y
-            ) / composition.height
+            x = (left + composition.tag_offset_x) / width
+            y = (top + composition.tag_offset_y) / height
             figure.text(
                 x,
                 y,
                 label,
                 ha="left",
-                va="top",
+                va="bottom",
                 fontsize=composition.tag_size,
                 fontweight=composition.tag_weight,
                 family=composition.font_family,
@@ -664,14 +736,18 @@ def compose(composition: Composition, output: str | Path) -> Path:
         raise ConfigError("figure-compositor output must use a .pdf extension")
     destination.parent.mkdir(parents=True, exist_ok=True)
 
+    pages = [_read_source_page(panel) for panel in composition.panels]
+    width, height, scale, tag_gutter = _canvas_layout(composition, pages)
     canvas = PageObject.create_blank_page(
-        width=composition.width * POINTS_PER_INCH,
-        height=composition.height * POINTS_PER_INCH,
+        width=width * POINTS_PER_INCH,
+        height=height * POINTS_PER_INCH,
     )
-    boxes = panel_boxes(composition)
-    for box in boxes:
-        _merge_panel(canvas, box)
-    overlay = _tag_overlay(composition, boxes)
+    boxes = _panel_boxes(composition, width, height)
+    panel_corners = [
+        _merge_panel(canvas, box, page, scale, tag_gutter)
+        for box, page in zip(boxes, pages, strict=True)
+    ]
+    overlay = _tag_overlay(composition, panel_corners, width, height)
     if overlay is not None:
         canvas.merge_page(overlay, over=True, expand=False)
 

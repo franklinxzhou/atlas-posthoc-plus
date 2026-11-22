@@ -7,7 +7,7 @@ import argparse
 from pathlib import Path
 from typing import Any
 
-from atlas_posthoc_plus.paper import save_figure
+from atlas_posthoc_plus.paper import figure_legend, official_plan_style, save_figure
 
 import matplotlib
 
@@ -100,9 +100,12 @@ def plot_cut_mcd_histograms(
 
     ref_handles = []
     for label, value in ref_values.items():
-        style = REFERENCE_LINE_STYLES.get(
+        style = official_plan_style(
             label,
-            {"color": "#555555", "linestyle": ":", "linewidth": 2.0},
+            **REFERENCE_LINE_STYLES.get(
+                label,
+                {"color": "#555555", "linestyle": ":", "linewidth": 2.0},
+            ),
         )
         ax.axvline(value, alpha=0.96, zorder=5, **style)
         ref_handles.append(Line2D([0], [0], label=label, **style))
@@ -118,7 +121,8 @@ def plot_cut_mcd_histograms(
     if density:
         ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
 
-    legend1 = ax.legend(
+    legend1 = figure_legend(
+        ax,
         handles=collection_handles,
         title="Ensembles",
         loc="upper right",
@@ -126,7 +130,8 @@ def plot_cut_mcd_histograms(
     )
     ax.add_artist(legend1)
     if ref_handles:
-        fig.legend(
+        figure_legend(
+            fig,
             handles=ref_handles,
             title="Official plans",
             loc="upper center",

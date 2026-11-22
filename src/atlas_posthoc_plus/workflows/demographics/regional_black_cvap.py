@@ -22,7 +22,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from atlas_posthoc_plus.paper import apply_paper_style, save_figure
+from atlas_posthoc_plus.paper import (
+    DATA_LABEL_GID,
+    apply_paper_style,
+    figure_legend,
+    official_plan_styles,
+    save_figure,
+)
 
 import geopandas as gpd
 import matplotlib
@@ -840,7 +846,7 @@ def _official_handles() -> list[Line2D]:
             markersize=6.5,
             label=label,
         )
-        for label, style in PLAN_STYLES.items()
+        for label, style in official_plan_styles(PLAN_STYLES)
     ]
 
 
@@ -994,7 +1000,7 @@ def plot_geography(
     for _, region in region_data.manifest.iterrows():
         region_code = str(region["code"])
         region_ensemble = ensemble_rows.loc[ensemble_rows["region_code"] == region_code]
-        for source, style in PLAN_STYLES.items():
+        for source, style in official_plan_styles(PLAN_STYLES):
             plan_rows = official_rows.loc[
                 (official_rows["region_code"] == region_code)
                 & (official_rows["source"] == source)
@@ -1048,7 +1054,7 @@ def plot_geography(
                         ha="center",
                         va="center",
                         zorder=6,
-                    )
+                    ).set_gid(DATA_LABEL_GID)
 
     lower = min(y_ticks) - 0.55
     upper = max(y_ticks) + 0.55
@@ -1115,7 +1121,8 @@ def plot_geography(
         ),
         *_official_handles(),
     ]
-    fig.legend(
+    figure_legend(
+        fig,
         handles=handles,
         loc="upper center",
         bbox_to_anchor=(0.57, 0.99),

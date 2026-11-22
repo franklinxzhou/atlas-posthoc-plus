@@ -551,7 +551,7 @@ def test_workflow_cli_outputs_are_comparable(inputs, tmp_path, mct_mode):
         labels = tradeoff.extract_text()
         assert f"Number of cut {title}" in labels
         assert "Ousted population share" in labels
-        assert "Reference plans" in labels and "chain-a" in labels
+        assert "Official plans" in labels and "chain-a" in labels
         assert len(tradeoff.images) == 0
 
 

@@ -36,7 +36,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Iterable
 
-from atlas_posthoc_plus.paper import save_figure
+from atlas_posthoc_plus.paper import figure_legend, official_plan_style, save_figure
 
 import matplotlib
 
@@ -1090,7 +1090,7 @@ def plot_split_histograms(
 
     handles = []
     for label, (cuts, ousted) in references.items():
-        style = REFERENCE_STYLES[label]
+        style = official_plan_style(label, **REFERENCE_STYLES[label])
         axes[0].axvline(cuts, zorder=10, alpha=0.95, **style)
         axes[1].axvline(ousted, zorder=10, alpha=0.95, **style)
         handles.append(Line2D([0], [0], label=label, **style))
@@ -1101,7 +1101,8 @@ def plot_split_histograms(
         ax.spines["right"].set_visible(False)
 
     fig.suptitle(title)
-    fig.legend(
+    figure_legend(
+        fig,
         handles=handles,
         loc="upper center",
         ncol=3,

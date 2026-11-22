@@ -128,17 +128,21 @@ atlas-posthoc-plus --paper-mode run municipal-histograms
 atlas-posthoc-plus --no-paper-mode suite standard
 ```
 
-In paper mode, every plotting workflow:
+Paper mode writes vector PDFs with embedded TrueType text, even when a
+configured output ends in `.png`. It uses Helvetica Neue with Helvetica,
+Arial, and DejaVu Sans fallbacks. Axis labels and panel headings use 10 pt,
+frameless legends use 9 pt, ticks and annotations use 8 pt, and bold panel
+letters use 11 pt. Numbers printed inside data markers can use 6 pt.
 
-- removes axes titles and figure-level titles;
-- uses Helvetica Neue with portable Helvetica/Arial/sans-serif fallbacks;
-- writes a vector `.pdf`, even when the configured output name ends in `.png`;
-- embeds TrueType text in the PDF; and
-- labels two- and four-panel figures `(a)`, `(b)`, `(c)`, and `(d)` at the
-  upper-left of each panel.
+Paper mode removes descriptive plot titles and keeps headings that identify
+panels, such as plan names and zoom ranges. All multi-panel layouts, including
+stacked panels, receive letters in panel order.
 
-Axis labels, tick labels, legends, and annotations remain intact so each figure
-still identifies its marks without relying on the manuscript caption.
+Ohio official plans use the same names and visual encodings across workflows.
+Enacted ('25) is purple with a circle or solid line, Overturned ('21) is blue
+with a square or dashed line, and Remedial ('22) is orange with a diamond or
+dash-dot line. Dedicated legends are titled “Official plans.” Mixed legends
+and direct labels use the same plan names.
 
 Municipal analyses support three explicit modes. The checked-in configuration
 retains the baseline:
@@ -328,9 +332,14 @@ In a compact design, repeated IDs span cells and `#` or `.` creates a spacer.
 Whitespace-delimited rows may be used for multi-character IDs. Omit `design`
 and set `ncol` or `nrow` for automatic row-major wrapping; `ncol = 1` stacks
 panels and `nrow = 1` places them side by side. `widths` and `heights` set
-relative grid sizes. The compositor centers each source page without changing
-its aspect ratio, applies consistent margins and gaps, and adds `(a)`, `(b)`,
-... in panel declaration order.
+relative grid sizes. The compositor fits source pages at a common scale, keeping
+equal-size text equal across panels. Omit `width` and `height` to size the canvas
+to the source pages at their native point sizes. An explicit dimension can
+shrink all panels by the same factor. Regenerate older source PDFs in paper
+mode to pick up the shared typography and palette.
+
+The compositor preserves source aspect ratios and places `(a)`, `(b)`, and
+subsequent tags in a dedicated strip above the panels, in declaration order.
 
 Panel `figure` paths are resolved against the `project.root` in that panel's
 source `config`; omit `config` to use the compositor's TOML. Optional panel

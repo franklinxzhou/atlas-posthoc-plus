@@ -35,7 +35,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from atlas_posthoc_plus.paper import save_figure
+from atlas_posthoc_plus.paper import figure_legend, official_plan_style, save_figure
 
 import matplotlib
 matplotlib.use("Agg")
@@ -474,7 +474,7 @@ def plot_histograms(
 
     handles = []
     for label, summary in reference_summaries.items():
-        style = reference_styles[label]
+        style = official_plan_style(label, **reference_styles[label])
         axes[0].axvline(summary.n_cut_municipalities, zorder=10, alpha=0.95, **style)
         val = summary.ousted_population_share if ousted_scale == "share" else summary.ousted_population
         axes[1].axvline(val, zorder=10, alpha=0.95, **style)
@@ -486,7 +486,9 @@ def plot_histograms(
         ax.spines["right"].set_visible(False)
 
     fig.suptitle(title)
-    fig.legend(handles=handles, loc="upper center", ncol=3, frameon=True, bbox_to_anchor=(0.5, 1.03))
+    figure_legend(
+        fig, handles=handles, loc="upper center", ncol=3, frameon=True, bbox_to_anchor=(0.5, 1.03),
+    )
     fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.93))
 
     output_path = Path(output_path)

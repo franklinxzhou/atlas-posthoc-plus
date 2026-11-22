@@ -27,7 +27,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from atlas_posthoc_plus.paper import save_figure
+from atlas_posthoc_plus.paper import figure_legend, official_plan_style, save_figure
 
 import matplotlib
 
@@ -641,9 +641,12 @@ def add_reference_lines_to_distribution_panel(
     legend_handles = []
 
     for label, summary in reference_summaries.items():
-        style = reference_styles.get(
+        style = official_plan_style(
             label,
-            {"color": "black", "linestyle": ":", "linewidth": 2.0},
+            **reference_styles.get(
+                label,
+                {"color": "black", "linestyle": ":", "linewidth": 2.0},
+            ),
         )
 
         ax_cuts.axhline(
@@ -668,7 +671,8 @@ def add_reference_lines_to_distribution_panel(
 
         legend_handles.append(Line2D([0], [0], label=label, **style))
 
-    fig.legend(
+    figure_legend(
+        fig,
         handles=legend_handles,
         loc="upper center",
         ncol=max(1, len(legend_handles)),

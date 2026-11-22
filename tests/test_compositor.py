@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from math import hypot
 from pathlib import Path
 
 import matplotlib as mpl
@@ -9,6 +10,7 @@ from matplotlib.figure import Figure
 from pypdf import PdfReader
 
 from atlas_posthoc_plus.config import ConfigError, load_config
+from atlas_posthoc_plus.paper import PAPER_RC
 from atlas_posthoc_plus.preflight import check_workflow
 from atlas_posthoc_plus.registry import WORKFLOWS
 from atlas_posthoc_plus.runner import prepare_workflow
@@ -32,13 +34,19 @@ root = "outputs"
     )
 
 
-def _write_vector_pdf(path: Path, slope: float) -> None:
+def _write_vector_pdf(
+    path: Path,
+    slope: float,
+    *,
+    size: tuple[float, float] = (2, 1.5),
+    label: str = "x",
+) -> None:
     with mpl.rc_context({"pdf.fonttype": 42}):
-        figure = Figure(figsize=(2, 1.5))
+        figure = Figure(figsize=size)
         FigureCanvasPdf(figure)
         axis = figure.subplots()
         axis.plot([0, 1], [0, slope])
-        axis.set_xlabel("x")
+        axis.set_xlabel(label, fontsize=10)
         path.parent.mkdir(parents=True, exist_ok=True)
         figure.savefig(path, format="pdf", bbox_inches="tight")
 
@@ -237,6 +245,59 @@ figure = "figure.pdf"
     assert "(a)" in text
     assert "(b)" in text
     assert b"/Subtype /Image" not in raw_pdf
+
+
+@pytest.mark.parametrize("fixed_size", [False, True])
+def test_compositor_keeps_tags_above_panels_and_uses_one_scale(tmp_path: Path, fixed_size: bool):
+    _write_vector_pdf(tmp_path / "a.pdf", 1, size=(2, 1.5), label="First axis")
+    _write_vector_pdf(tmp_path / "b.pdf", -1, size=(5, 3), label="Second axis")
+    config_path = tmp_path / "compose.toml"
+    dimensions = "width = 6\nheight = 3\n" if fixed_size else ""
+    config_path.write_text(
+        f"""
+[project]
+root = "."
+
+[workflow.figure-compositor]
+design = "AB"
+{dimensions}
+[[workflow.figure-compositor.panels]]
+workflow = "polsby-histogram"
+figure = "a.pdf"
+
+[[workflow.figure-compositor.panels]]
+workflow = "responsiveness"
+figure = "b.pdf"
+""",
+        encoding="utf-8",
+    )
+    composition = parse_composition(load_config(config_path))
+    with mpl.rc_context(PAPER_RC):
+        output = compose(composition, tmp_path / "combined.pdf")
+    page = PdfReader(output).pages[0]
+    positions = {}
+    point_sizes = {}
+
+    def collect_text(text, ctm, tm, font, size):
+        label = text.strip()
+        if label in {"(a)", "(b)", "First axis", "Second axis"}:
+            positions[label] = (
+                ctm[0] * tm[4] + ctm[2] * tm[5] + ctm[4],
+                ctm[1] * tm[4] + ctm[3] * tm[5] + ctm[5],
+            )
+            point_sizes[label] = size * hypot(ctm[0], ctm[1])
+
+    page.extract_text(visitor_text=collect_text)
+    assert positions["(a)"][0] < positions["(b)"][0]
+    assert positions["First axis"][1] < positions["(a)"][1] < positions["(b)"][1]
+    assert positions["Second axis"][1] < positions["(b)"][1]
+    assert float(page.mediabox.height) / 2 < positions["(b)"][1] < float(page.mediabox.height)
+    assert point_sizes["(a)"] == pytest.approx(11)
+    assert point_sizes["First axis"] == pytest.approx(point_sizes["Second axis"])
+    if fixed_size:
+        assert point_sizes["First axis"] < 10
+    else:
+        assert point_sizes["First axis"] == pytest.approx(10)
 
 
 def test_non_pdf_panel_is_rejected_with_vector_guidance(tmp_path: Path) -> None:
