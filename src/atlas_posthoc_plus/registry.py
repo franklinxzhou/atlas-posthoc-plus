@@ -495,6 +495,21 @@ _register(
 
 _register(
     WorkflowSpec(
+        "municipal-tradeoff-histograms",
+        "atlas_posthoc_plus.workflows.municipal.tradeoff_histograms",
+        "municipal",
+        "Draw paired municipal split histograms with official plan annotations.",
+        (
+            Binding("--ousted-scale", "analysis.ousted_scale", default="share"),
+            Binding("--output-dir", "outputs.municipal_tradeoff_histograms_dir", "path"),
+        ),
+        config_flag="--config",
+        uses_chain_sweep=False,
+    )
+)
+
+_register(
+    WorkflowSpec(
         "municipal-outside-population-marginals",
         "atlas_posthoc_plus.workflows.municipal.outside_population_marginals",
         "municipal",

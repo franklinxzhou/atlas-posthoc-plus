@@ -186,6 +186,30 @@ Configure the 2020 Census input under `[workflow.mct-diagnostics]` and run
 versus ousted-population-share plots for municipal corporations and townships.
 See the [configuration guide](docs/municipal-corporations-and-townships.md).
 
+### Municipal tradeoff histograms
+
+`municipal-tradeoff-histograms` follows Figure 6.1.15 of Jonathan C. Mattingly's
+North Carolina expert report. The left panel shows the density of ousted population
+and the right panel shows the share of sampled plans at each integer cut count.
+Black arrows label the three official Ohio plans at their exact values. The figure
+pools sampled plans from the configured traces and uses grayscale for print.
+[Mattingly's expert report, p. 39](https://sites.duke.edu/quantifyinggerrymandering/files/2022/08/Expert_Report_of_Jonathan_Mattingly_12.23.21.pdf#page=39)
+
+Run `municipal-histograms-compliant` first for COUSUB or PLACE, or `mct-diagnostics`
+for MCT. Use the new command to render the PDFs.
+
+```bash
+aph-plus --paper-mode run municipal-tradeoff-histograms
+```
+
+The vector PDFs go to `outputs.root/<output_namespace>/municipal/` by default.
+COUSUB and PLACE each produce `municipal-tradeoff-histograms.pdf`. MCT produces
+`mct-tradeoff-histograms.pdf`, `municipal-corporation-tradeoff-histograms.pdf`,
+and `township-tradeoff-histograms.pdf`.
+Set `analysis.ousted_scale = "population"` to show people in place of the
+default population share. The combined MCT share divides the deduplicated
+ousted population by the population with at least one eligible membership.
+
 ## Running one analysis
 
 List the available workflow modules:
@@ -772,6 +796,7 @@ layer covering the manifest's metro areas.
 | `municipal-histograms` | `workflows.municipal.histograms` | Pooled municipal histograms |
 | `municipal-distributions` | `workflows.municipal.distributions` | Chain-wise municipal distributions |
 | `municipal-tradeoff` | `workflows.municipal.tradeoff` | Cut/ousted-population tradeoff |
+| `municipal-tradeoff-histograms` | `workflows.municipal.tradeoff_histograms` | Paired ousted-population and cut-count histograms |
 | `municipal-outside-population-marginals` | `workflows.municipal.outside_population_marginals` | Multi-ensemble ousted-population marginals |
 | `municipal-cut-mcd-histograms` | `workflows.municipal.cut_mcd_histograms` | Multi-ensemble cut-MCD histograms |
 | `municipal-tradeoff-public` | `workflows.municipal.tradeoff_public` | Public-plan tradeoff |
