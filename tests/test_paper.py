@@ -25,7 +25,8 @@ def test_paper_mode_saves_pdf_without_titles_and_adds_panel_labels(
     figure, axes = plt.subplots(1, 2)
     figure.suptitle("Figure title")
     axes[0].set_title("Left title")
-    axes[1].set_title("Right title")
+    axes[1].set_title("Left-aligned subtitle", loc="left")
+    axes[1].set_title("Right-aligned subtitle", loc="right")
     axes[0].plot([0, 1], [0, 1])
     axes[1].plot([0, 1], [1, 0])
 
@@ -34,7 +35,11 @@ def test_paper_mode_saves_pdf_without_titles_and_adds_panel_labels(
     assert destination == tmp_path / "figure.pdf"
     assert destination.read_bytes().startswith(b"%PDF")
     assert figure._suptitle.get_text() == ""
-    assert [axis.get_title() for axis in axes] == ["", ""]
+    assert all(
+        not axis.get_title(loc=location)
+        for axis in axes
+        for location in ("left", "center", "right")
+    )
     assert [
         artist.get_text()
         for artist in figure.findobj()

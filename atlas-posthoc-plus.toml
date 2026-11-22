@@ -47,6 +47,8 @@ block_metadata = "data/raw/tl_2024_39_tabblock20/tl_2024_39_tabblock20.shp"
 block_shapefile = "data/raw/tl_2024_39_tabblock20/tl_2024_39_tabblock20.shp"
 mcd_shapefile = "data/raw/tl_2024_39_cousub/tl_2024_39_cousub.shp"
 target_precincts = "data/derived/pctSF_OH/pctSF_OH.shp"
+# To include partisan-asymmetry in the full suite, supply a district vote CSV.
+# district_votes_csv = "outputs/elections/recast-district-votes.csv"
 cvap_file = "data/raw/oh_cvap_2023_b.zip"
 public_plan_dir = "scripts/plans/public/combined_21_25"
 other_csv = "data/other_ensembles/OH.csv"

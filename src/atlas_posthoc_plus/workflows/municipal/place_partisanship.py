@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from atlas_posthoc_plus.paper import save_figure
+from atlas_posthoc_plus.paper import apply_paper_style, save_figure
 
 import matplotlib
 
@@ -78,6 +78,7 @@ def apply_figure_style() -> None:
             "ps.fonttype": 42,
         }
     )
+    apply_paper_style()
 
 
 def compute_place_ousted_shares(

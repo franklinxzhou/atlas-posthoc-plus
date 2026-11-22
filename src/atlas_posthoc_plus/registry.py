@@ -39,6 +39,7 @@ class WorkflowSpec:
     required_municipality_mode: Literal["COUSUB", "PLACE"] | None = None
     config_flag: str | None = None
     uses_chain_sweep: bool = True
+    suite_input_key: str | None = None
 
     def build_args(self, config: ProjectConfig) -> list[str]:
         if self.required_municipality_mode is not None:
@@ -1251,6 +1252,49 @@ _register(
 
 _register(
     WorkflowSpec(
+        "recast-precinct-votes",
+        "atlas_posthoc_plus.workflows.elections.recast_precinct_votes",
+        "elections",
+        "Allocate precinct-by-district votes to blocks and aggregate them on three maps.",
+        (
+            Binding("--precinct-votes", "inputs.precinct_votes_csv", "path", required=True),
+            Binding("--block-crosswalk", "inputs.election_block_crosswalk_csv", "path", required=True),
+            Binding("--plans", "workflow.recast-precinct-votes.plans", "values", required=True),
+            Binding(
+                "--output",
+                "outputs.recast_district_votes",
+                "path",
+                default=OutputDefault("elections/recast-district-votes.csv"),
+            ),
+        ),
+        uses_chain_sweep=False,
+    )
+)
+
+_register(
+    WorkflowSpec(
+        "partisan-asymmetry",
+        "atlas_posthoc_plus.workflows.elections.partisan_asymmetry",
+        "elections",
+        "Compare district margins across three plans and zoom around zero.",
+        (
+            Binding("--district-votes", "inputs.district_votes_csv", "path", required=True),
+            Binding(
+                "--output",
+                "outputs.partisan_asymmetry",
+                "path",
+                default=OutputDefault("elections/partisan-asymmetry.png"),
+            ),
+            Binding("--close-pp", "workflow.partisan-asymmetry.close_pp"),
+            Binding("--title", "workflow.partisan-asymmetry.title"),
+        ),
+        uses_chain_sweep=False,
+        suite_input_key="inputs.district_votes_csv",
+    )
+)
+
+_register(
+    WorkflowSpec(
         "responsiveness",
         "atlas_posthoc_plus.workflows.elections.responsiveness",
         "elections",
@@ -1433,6 +1477,7 @@ PIPELINES["full"] = (
     "reock-histogram",
     *PIPELINES["municipal"],
     "responsiveness-zoom",
+    "partisan-asymmetry",
 )
 
 SUITES = PIPELINES

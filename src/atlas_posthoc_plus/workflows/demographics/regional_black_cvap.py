@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from atlas_posthoc_plus.paper import save_figure
+from atlas_posthoc_plus.paper import apply_paper_style, save_figure
 
 import geopandas as gpd
 import matplotlib
@@ -87,6 +87,7 @@ def apply_figure_style() -> None:
             "ps.fonttype": 42,
         }
     )
+    apply_paper_style()
 
 
 @dataclass(frozen=True)

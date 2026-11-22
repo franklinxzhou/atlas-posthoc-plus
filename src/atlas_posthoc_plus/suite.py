@@ -196,6 +196,10 @@ def run_suite(
         if resolved is None:
             print(f"Skipping {workflow_name}: unavailable in municipality.mode={municipality_mode}")
             continue
+        input_key = resolved.suite_input_key
+        if input_key is not None and config.get(input_key) in (None, ""):
+            print(f"Skipping {workflow_name}: {input_key} is not configured", flush=True)
+            continue
         selected_workflows.setdefault(resolved.name, resolved)
 
     prepared = [
