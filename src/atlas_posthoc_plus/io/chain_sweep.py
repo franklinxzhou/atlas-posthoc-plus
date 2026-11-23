@@ -7,19 +7,20 @@ import json
 import os
 import pickle
 from dataclasses import dataclass
+from itertools import islice
 from pathlib import Path
 from typing import Any, Iterator
 
 import numpy as np
 import pandas as pd
 
-from atlas_posthoc.io.atlas_reader import canonicalize_unit_key, iter_atlas_records
+from atlas_posthoc.io.atlas_reader import ParseSummary, canonicalize_unit_key, iter_atlas_records
 
 from atlas_posthoc_plus.io.graph import read_graph_frame
 
 SWEEP_DIR_ENV = "ATLAS_POSTHOC_PLUS_SWEEP_DIR"
 SWEEP_LIMIT_ENV = "ATLAS_POSTHOC_PLUS_SWEEP_LIMIT"
-SWEEP_SCHEMA = 1
+SWEEP_SCHEMA = 2
 COMPLIANCE_ATTR = "atlas_posthoc_plus_compliance"
 
 
@@ -179,27 +180,33 @@ def _dense_assignment(
     return districts
 
 
+def county_split_sizes(
+    districts: np.ndarray, county_positions: np.ndarray, county_count: int
+) -> np.ndarray:
+    """Count distinct assigned districts in each pre-indexed county."""
+    district_positions, labels = pd.factorize(districts)
+    if not len(labels):
+        return np.zeros(county_count, dtype=int)
+    cells = county_positions * len(labels) + district_positions
+    return np.bincount(pd.unique(cells) // len(labels), minlength=county_count)
+
+
 def _compliance(
     districts: np.ndarray,
-    counties: np.ndarray,
+    county_positions: np.ndarray,
+    county_count: int,
     *,
     max_districts_per_county: int,
 ) -> dict[str, Any]:
-    split_sizes = [
-        int(np.unique(districts[counties == county]).size)
-        for county in np.unique(counties)
-    ]
-    worst_split = max(split_sizes, default=0)
-    double_cross_count = sum(
-        split_size > max_districts_per_county for split_size in split_sizes
-    )
+    split_sizes = county_split_sizes(districts, county_positions, county_count)
+    double_cross_count = int(np.count_nonzero(split_sizes > max_districts_per_county))
     return {
         "compliant": double_cross_count == 0,
         "assigned_nodes": int(districts.size),
         "missing_nodes": 0,
         "assigned_fraction": 1.0,
-        "double_cross_count": int(double_cross_count),
-        "worst_split": int(worst_split),
+        "double_cross_count": double_cross_count,
+        "worst_split": int(split_sizes.max(initial=0)),
     }
 
 
@@ -238,20 +245,20 @@ def materialize_chain_sweep(
         key_col=key_col,
         county_col=county_col,
     )
+    county_positions, county_labels = pd.factorize(counties)
+    summary = ParseSummary(path=source, chain_id=source.name)
     data_tmp = data_path.with_suffix(data_path.suffix + ".tmp")
     metadata_tmp = metadata_path.with_suffix(metadata_path.suffix + ".tmp")
     count = 0
     try:
         with data_tmp.open("wb") as stream:
             pickle.dump({"node_ids": node_ids}, stream, protocol=pickle.HIGHEST_PROTOCOL)
-            for record in iter_atlas_records(source, skip_bad_lines=True):
-                if max_records is not None and count >= max_records:
-                    break
-                districts = _dense_assignment(
-                    record.assignment,
-                    key_to_position,
-                    len(node_ids),
-                )
+            records = iter_atlas_records(source, skip_bad_lines=True, summary=summary)
+            for record in islice(records, max_records):
+                try:
+                    districts = _dense_assignment(record.assignment, key_to_position, len(node_ids))
+                except ValueError as exc:
+                    raise ValueError(f"{source}, line {record.line_number}: {exc}") from exc
                 payload = {
                     "chain_id": record.chain_id,
                     "record_index": record.map_index,
@@ -262,15 +269,22 @@ def materialize_chain_sweep(
                     "districts": districts,
                     "compliance": _compliance(
                         districts,
-                        counties,
+                        county_positions,
+                        len(county_labels),
                         max_districts_per_county=max_districts_per_county,
                     ),
                 }
                 pickle.dump(payload, stream, protocol=pickle.HIGHEST_PROTOCOL)
                 count += 1
+                if count % 250 == 0:
+                    total = f"/{max_records:,}" if max_records is not None else ""
+                    print(f"  {source.name}: swept {count:,}{total} maps", flush=True)
 
         metadata_tmp.write_text(
-            json.dumps({**expected, "records": count}, indent=2) + "\n",
+            json.dumps({
+                **expected, "records": count,
+                "parser_exclusions": summary.records_seen - summary.records_yielded,
+            }, indent=2) + "\n",
             encoding="utf-8",
         )
         os.replace(data_tmp, data_path)
@@ -287,6 +301,27 @@ def configured_sweep() -> tuple[Path, int | None] | None:
         return None
     raw_limit = os.environ.get(SWEEP_LIMIT_ENV)
     return Path(value), int(raw_limit) if raw_limit else None
+
+
+def audited_sweep_size(path, graph_path, *, max_records, **options) -> int | None:
+    """Return a verified sweep length when parser exclusions can be ruled out."""
+    configured = configured_sweep()
+    if configured is None:
+        return None
+    cache_dir, limit = configured
+    if limit is not None and (max_records is None or limit < max_records):
+        return None
+    source = Path(path).resolve()
+    data_path, metadata_path = _cache_paths(cache_dir.resolve(), source)
+    expected = _expected_metadata(source, Path(graph_path).resolve(), max_records=max_records,
+                                  **options)
+    if not _cache_is_valid(metadata_path, data_path, expected):
+        return None
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    count = metadata.get("records")
+    if metadata.get("parser_exclusions") != 0 or not isinstance(count, int) or count < 0:
+        return None
+    return min(count, max_records) if max_records is not None else count
 
 
 def iter_sweep_records(path: str | Path) -> Iterator[SweepRecord]:
