@@ -166,9 +166,10 @@ def iter_map_records(
     path: str | Path,
     *,
     skip_bad_json: bool = True,
+    summary: ParseSummary | None = None,
 ) -> Iterator[dict[str, Any]]:
-    """Yield legacy-shaped records using the maintained Atlas parser."""
-    if configured_sweep() is not None and skip_bad_json:
+    """Yield legacy-shaped records, optionally collecting source parser diagnostics."""
+    if configured_sweep() is not None and skip_bad_json and summary is None:
         for record in iter_sweep_records(path):
             yield {
                 "name": record.name,
@@ -180,7 +181,11 @@ def iter_map_records(
             }
         return
 
-    for record in iter_records(path, skip_bad_lines=skip_bad_json):
+    records = (
+        _iter_atlas_records(path, skip_bad_lines=skip_bad_json, summary=summary)
+        if summary is not None else iter_records(path, skip_bad_lines=skip_bad_json)
+    )
+    for record in records:
         yield {
             "name": record.name,
             "weight": record.weight,
@@ -190,4 +195,5 @@ def iter_map_records(
                 if record.raw_assignment is not None
                 else record.assignment
             ),
+            "line_number": record.line_number,
         }

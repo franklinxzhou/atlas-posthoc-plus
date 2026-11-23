@@ -1318,6 +1318,9 @@ _register(
             GRAPH,
             Binding("--target-precincts", "inputs.target_precincts", "path", required=True),
             CHAINS,
+            Binding("--race-ids", "workflow.responsiveness.race_ids", "values"),
+            Binding("--election-cache-dir", "outputs.responsiveness_election_cache", "path"),
+            Binding("--election-cache-mode", "workflow.responsiveness.election_cache_mode"),
             Binding("--election-layer", "elections.layers", "path_mapping", required=True),
             CROSSWALK,
             ENACTED,
@@ -1404,6 +1407,7 @@ _register(
                     "responsiveness/responsiveness-zoom-public-plans.png"
                 ),
             ),
+            Binding("--race-ids", "workflow.responsiveness-zoom.race_ids", "values"),
             N_DISTRICTS,
         ),
     )

@@ -43,6 +43,9 @@ from atlas_posthoc_plus.paper import (
     set_panel_title,
 )
 
+from atlas_posthoc_plus.workflows.elections.responsiveness import requested_races
+from atlas_posthoc_plus.workflows.elections.responsiveness_progress import Progress
+
 import numpy as np
 import pandas as pd
 import matplotlib
@@ -127,6 +130,8 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--title", default="Ohio congressional responsiveness across statewide elections")
     p.add_argument("--n-districts", type=int, default=15)
+    p.add_argument("--race-ids", nargs="+", metavar="ID",
+                   help="Plot only these race IDs from the existing CSVs")
     p.add_argument("--zoom-panels", type=int, default=4)
     p.add_argument("--max-races-per-zoom", type=int, default=6)
     return p.parse_args()
@@ -743,33 +748,31 @@ def plot_from_csv(
 
 def main():
     args = parse_args()
-    races = pd.read_csv(args.race_summary)
-    ensemble = pd.read_csv(args.ensemble_seats)
-    official = pd.read_csv(args.official_seats)
-    public = None
-    if args.overlay_public_plans:
-        if args.public_seats is None:
-            raise ValueError("--overlay-public-plans requires --public-seats")
-        public_path = Path(args.public_seats)
-        if not public_path.exists():
-            raise FileNotFoundError(f"Public-plan seats CSV not found: {public_path}")
-        public = pd.read_csv(public_path)
+    progress = Progress()
+    with progress.stage("Reading responsiveness zoom CSVs"):
+        races = pd.read_csv(args.race_summary)
+        selected = requested_races(args.race_ids, races["race_id"])
+        if not selected:
+            raise ValueError("Race summary contains no races")
+        races = races[races["race_id"].isin(selected)]
+        ensemble = pd.read_csv(args.ensemble_seats)
+        official = pd.read_csv(args.official_seats)
+        public = None
+        if args.overlay_public_plans:
+            if args.public_seats is None:
+                raise ValueError("--overlay-public-plans requires --public-seats")
+            public = pd.read_csv(args.public_seats)
+        progress.log(f"Loaded zoom inputs for {len(races)} races")
     output = Path(args.output)
     public_output = Path(args.public_output) if args.public_output else None
-    plot_from_csv(
-        races, ensemble, official, output,
-        title=args.title,
-        n_districts=args.n_districts,
-        zoom_panels=args.zoom_panels,
-        max_races_per_zoom=args.max_races_per_zoom,
-        public=public,
-        overlay_public_plans=args.overlay_public_plans,
-        public_output=public_output,
-    )
-    print(f"Wrote {output}")
-    if args.overlay_public_plans:
-        destination = public_output if public_output is not None else _derived_public_output(output)
-        print(f"Wrote public-plan figure {destination}")
+    with progress.stage("Generating responsiveness zoom figures"):
+        plot_from_csv(
+            races, ensemble, official, output,
+            title=args.title, n_districts=args.n_districts,
+            zoom_panels=args.zoom_panels, max_races_per_zoom=args.max_races_per_zoom,
+            public=public, overlay_public_plans=args.overlay_public_plans,
+            public_output=public_output,
+        )
 
 
 if __name__ == "__main__":

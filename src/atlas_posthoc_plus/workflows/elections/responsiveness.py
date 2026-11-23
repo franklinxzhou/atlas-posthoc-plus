@@ -26,10 +26,18 @@ atlas-posthoc-plus run responsiveness \
 
 from __future__ import annotations
 
-import argparse, gzip, json, re
+import argparse
+import hashlib
+import json
+import re
+from functools import lru_cache
+from importlib.metadata import PackageNotFoundError, version
+from itertools import islice
 from pathlib import Path
-from typing import Any, Iterable
+from time import perf_counter
+from typing import Iterable
 
+from atlas_posthoc_plus import __version__
 from atlas_posthoc_plus.paper import figure_legend, official_plan_styles, save_figure
 
 import matplotlib
@@ -40,12 +48,20 @@ from matplotlib.ticker import PercentFormatter
 import numpy as np
 import pandas as pd
 
-from atlas_posthoc_plus.io.atlas_records import iter_map_records
+from atlas_posthoc_plus.io.atlas_records import ParseSummary, iter_map_records
 from atlas_posthoc_plus.io.chain_sweep import (
-    cached_assignment_series,
-    cached_compliance,
+    DenseDistricting,
+    audited_sweep_size,
+    county_split_sizes,
     configured_sweep,
+    iter_sweep_records,
 )
+
+from atlas_posthoc_plus.workflows.elections.responsiveness_cache import (
+    cached_allocation,
+    input_signatures,
+)
+from atlas_posthoc_plus.workflows.elections.responsiveness_progress import Progress
 
 PLAN_STYLES = {
     "Enacted ('25)": {"color": "#9467bd", "marker": "o"},
@@ -150,7 +166,8 @@ def read_vector(path):
     return gpd.read_file(path)
 
 def read_graph_nodes(path):
-    with Path(path).open() as f: obj = json.load(f)
+    content = Path(path).read_bytes()
+    obj = json.loads(content)
     nodes = obj.get("nodes") if isinstance(obj.get("nodes"), list) else obj.get("node_attributes")
     if not isinstance(nodes, list): raise ValueError("graph JSON needs nodes or node_attributes")
     df = pd.DataFrame(nodes).copy()
@@ -158,6 +175,7 @@ def read_graph_nodes(path):
         if c not in df.columns: raise ValueError(f"graph missing {c}; columns={list(df.columns)}")
     df["id"] = pd.to_numeric(df["id"], errors="raise").astype(int)
     for c in ["NAME", "ORIG_NAME", "COUNTY"]: df[c] = df[c].map(norm)
+    df.attrs["source_sha256"] = hashlib.sha256(content).hexdigest()
     return df
 
 def load_target_geoms(graph_nodes, target_precincts, target_key_col, graph_target_key_col, node_id_col):
@@ -170,8 +188,8 @@ def load_target_geoms(graph_nodes, target_precincts, target_key_col, graph_targe
     lookup[graph_target_key_col] = lookup[graph_target_key_col].map(norm)
     gdf = gdf.merge(lookup, left_on=target_key_col, right_on=graph_target_key_col, how="inner")
     n_graph, n_match = graph_nodes[node_id_col].nunique(), gdf[node_id_col].nunique()
-    print(f"Target geometry matched {n_match:,} / {n_graph:,} graph nodes")
-    if n_match < 0.95 * n_graph: print("WARNING: target geometry match below 95%")
+    print(f"Target geometry matched {n_match:,} / {n_graph:,} graph nodes", flush=True)
+    if n_match < 0.95 * n_graph: print("WARNING: target geometry match below 95%", flush=True)
     gdf = gdf.rename(columns={node_id_col: "node_id"})
     gdf["node_id"] = gdf["node_id"].astype(int)
     return gdf[["node_id", "geometry"]].copy()
@@ -183,184 +201,421 @@ def parse_layers(items):
         out[int(y)] = Path(p)
     return out
 
-def infer_races(year, columns):
+def requested_races(race_ids, available):
+    """Validate an explicit selection and return its IDs as a set."""
+    if not race_ids:
+        return set(available)
+    requested = set(race_ids)
+    missing = requested - set(available)
+    if missing:
+        raise ValueError(
+            f"Race IDs unavailable: {', '.join(sorted(missing))}. "
+            f"Available: {', '.join(sorted(available))}"
+        )
+    return requested
+
+
+def infer_races(year, columns, race_ids=None, *, progress):
     races = []
-    for race_id, label, dem_cands, rep_cands in RACE_MANIFEST.get(year, []):
+    for race_id, label, dem_cands, rep_cands in RACE_MANIFEST[year]:
+        if race_ids and race_id not in race_ids:
+            continue
         dc, rc = pick(columns, dem_cands), pick(columns, rep_cands)
-        if dc and rc:
-            races.append({
-                "year": year, "race_id": race_id, "label": label,
-                "dem_col_source": dc, "rep_col_source": rc,
-                "dem_col_graph": f"{race_id}DEM", "rep_col_graph": f"{race_id}REP",
-            })
-        else:
-            print(f"  Skipping {label}: dem {dem_cands}->{dc}, rep {rep_cands}->{rc}")
+        if dc is None or rc is None:
+            message = f"{race_id} ({label}): dem {dem_cands}->{dc}, rep {rep_cands}->{rc}"
+            if race_ids:
+                raise ValueError(f"Requested race is missing election columns: {message}")
+            progress.log(f"WARNING: skipping unavailable manifest race {message}")
+            continue
+        races.append({
+            "year": year, "race_id": race_id, "label": label,
+            "dem_col_source": dc, "rep_col_source": rc,
+            "dem_col_graph": f"{race_id}DEM", "rep_col_graph": f"{race_id}REP",
+        })
     return races
 
-def spatial_crosswalk(source, target, area_crs):
+
+def area_geometry(frame, area_crs):
+    if frame.crs is None:
+        raise ValueError("Vector layer has no CRS")
+    result = frame.to_crs(area_crs)
+    result["geometry"] = result.geometry.buffer(0)
+    return result
+
+
+def spatial_crosswalk(source, projected_target, area_crs, *, progress, label):
     import geopandas as gpd
-    if source.crs is None: raise ValueError("election layer has no CRS")
-    if target.crs is None: raise ValueError("target layer has no CRS")
-    src = source.reset_index(drop=True).copy()
-    src["_source_id"] = np.arange(len(src), dtype=int)
-    src = src.to_crs(area_crs)
-    tgt = target.to_crs(area_crs)
-    src["geometry"] = src.geometry.buffer(0)
-    tgt["geometry"] = tgt.geometry.buffer(0)
-    src["_src_area"] = src.geometry.area
-    src = src[src["_src_area"] > 0].copy()
-    inter = gpd.overlay(src[["_source_id", "_src_area", "geometry"]],
-                        tgt[["node_id", "geometry"]],
-                        how="intersection", keep_geom_type=False)
-    if inter.empty: raise ValueError("spatial overlay produced no intersections")
-    inter["_inter_area"] = inter.geometry.area
-    inter = inter[inter["_inter_area"] > 0].copy()
-    inter["weight"] = inter["_inter_area"] / inter["_src_area"]
+
+    with progress.stage(f"{label} source geometry projection and repair"):
+        src = area_geometry(source[["geometry"]].reset_index(drop=True), area_crs)
+        src["_source_id"] = np.arange(len(src), dtype=int)
+        src["_src_area"] = src.geometry.area
+        src = src[src["_src_area"] > 0].copy()
+    with progress.stage(
+        f"{label} spatial intersection ({len(src):,} source × {len(projected_target):,} target geometries)"
+    ):
+        inter = gpd.overlay(src, projected_target, how="intersection", keep_geom_type=False)
+        if inter.empty:
+            raise ValueError("spatial overlay produced no intersections")
+        inter["_inter_area"] = inter.geometry.area
+        inter = inter[inter["_inter_area"] > 0].copy()
+        if inter.empty:
+            raise ValueError("spatial overlay produced no positive-area intersections")
+        inter["weight"] = inter["_inter_area"] / inter["_src_area"]
+        progress.log(f"{label}: {len(inter):,} positive-area intersections")
     return inter[["_source_id", "node_id", "weight"]]
 
-def allocate_layer(year, election_path, target_geoms, area_crs):
-    print(f"\nReading election layer {year}: {election_path}")
-    src = read_vector(election_path)
-    races = infer_races(year, src.columns)
-    if not races:
-        return pd.DataFrame({"node_id": target_geoms["node_id"]}), pd.DataFrame(), []
-    needed = sorted(set([r["dem_col_source"] for r in races] + [r["rep_col_source"] for r in races]))
-    for c in needed: src[c] = pd.to_numeric(src[c], errors="coerce").fillna(0.0)
-    print(f"  Found {len(races)} statewide D/R races:")
-    for r in races: print(f"    {r['label']}: {r['dem_col_source']} / {r['rep_col_source']}")
-    print("  Building spatial crosswalk...")
-    cw = spatial_crosswalk(src, target_geoms, area_crs)
-    values = src[needed].copy()
-    values["_source_id"] = np.arange(len(values), dtype=int)
-    long = cw.merge(values, on="_source_id", how="left")
-    allocated = pd.DataFrame({"node_id": sorted(target_geoms["node_id"].unique())})
-    val_rows = []
-    for r in races:
-        ds, rs = r["dem_col_source"], r["rep_col_source"]
-        dg, rg = r["dem_col_graph"], r["rep_col_graph"]
-        long[dg], long[rg] = long[ds] * long["weight"], long[rs] * long["weight"]
-        grouped = long.groupby("node_id", as_index=False)[[dg, rg]].sum()
-        allocated = allocated.merge(grouped, on="node_id", how="left")
-        sd, sr = float(src[ds].sum()), float(src[rs].sum())
-        ad, ar = float(grouped[dg].sum()), float(grouped[rg].sum())
-        val_rows.append({
-            "year": year, "race_id": r["race_id"], "label": r["label"],
-            "dem_source_col": ds, "rep_source_col": rs,
-            "dem_source_total": sd, "rep_source_total": sr,
-            "dem_allocated_total": ad, "rep_allocated_total": ar,
-            "dem_allocation_ratio": ad / sd if sd else np.nan,
-            "rep_allocation_ratio": ar / sr if sr else np.nan,
-            "statewide_dem_share_source": sd / (sd + sr) if sd + sr > 0 else np.nan,
-            "statewide_dem_share_allocated": ad / (ad + ar) if ad + ar > 0 else np.nan,
-        })
-    return allocated.fillna(0.0), pd.DataFrame(val_rows), races
 
-def open_maybe_gzip(path):
-    path = Path(path)
-    return gzip.open(path, "rt") if path.suffix == ".gz" else path.open("r")
+def allocation_metrics(sd, sr, ad, ar):
+    return {
+        "dem_source_total": sd,
+        "rep_source_total": sr,
+        "dem_allocated_total": ad,
+        "rep_allocated_total": ar,
+        "dem_allocation_ratio": ad / sd if sd else np.nan,
+        "rep_allocation_ratio": ar / sr if sr else np.nan,
+        "statewide_dem_share_source": sd / (sd + sr) if sd + sr > 0 else np.nan,
+        "statewide_dem_share_allocated": ad / (ad + ar) if ad + ar > 0 else np.nan,
+    }
 
-def maybe_json_loads(x):
-    while isinstance(x, str):
-        s = x.strip()
-        if not s or not (s.startswith("{") or s.startswith("[") or s.startswith('"')): return x
-        try: x = json.loads(s)
-        except json.JSONDecodeError: return x
-    return x
 
-def iter_json_values(line):
-    dec, idx, n = json.JSONDecoder(), 0, len(line)
-    while idx < n:
-        while idx < n and line[idx].isspace(): idx += 1
-        if idx >= n: break
-        obj, end = dec.raw_decode(line, idx)
-        yield obj
-        idx = end
+def allocate_layer(year, election_path, target_geoms, area_crs, race_ids=None, *, progress, label):
+    with progress.stage(f"{label} reading election layer {election_path}"):
+        src = read_vector(election_path)
+        races = infer_races(year, src.columns, race_ids, progress=progress)
+        if not races:
+            progress.log(f"WARNING: election layer {year} has no usable statewide races")
+            return pd.DataFrame(), pd.DataFrame(), []
+        needed = sorted({r[key] for r in races for key in ("dem_col_source", "rep_col_source")})
+        for column in needed:
+            numeric = pd.to_numeric(src[column], errors="coerce")
+            invalid = int((numeric.isna() & src[column].notna()).sum())
+            if invalid:
+                progress.log(f"WARNING: {label} {column} contains {invalid:,} nonnumeric "
+                             "vote values treated as zero")
+            src[column] = numeric.fillna(0.0)
+        progress.log(f"{label}: {len(src):,} source rows, races: "
+                     + ", ".join(r["race_id"] for r in races))
+    cw = spatial_crosswalk(src, target_geoms, area_crs, progress=progress, label=label)
+    with progress.stage(f"{label} allocating node votes and validating {len(races)} races"):
+        values = src[needed].copy()
+        values["_source_id"] = np.arange(len(values), dtype=int)
+        overlaps = cw.merge(values, on="_source_id", how="left")
+        # Use the same products and groupby sums as allocating each D/R pair.
+        weighted = {r[graph_col]: overlaps[r[source_col]] * overlaps["weight"]
+                    for r in races for graph_col, source_col in (
+                        ("dem_col_graph", "dem_col_source"), ("rep_col_graph", "rep_col_source")
+                    )}
+        allocated = pd.DataFrame(weighted).groupby(overlaps["node_id"]).sum()
+        validation = []
+        for race in races:
+            ds, rs = race["dem_col_source"], race["rep_col_source"]
+            dg, rg = race["dem_col_graph"], race["rep_col_graph"]
+            validation.append({
+                "year": year, "race_id": race["race_id"], "label": race["label"],
+                "dem_source_col": ds, "rep_source_col": rs,
+                **allocation_metrics(float(src[ds].sum()), float(src[rs].sum()),
+                                     float(allocated[dg].sum()), float(allocated[rg].sum())),
+            })
+        allocated = allocated.reindex(sorted(target_geoms["node_id"].unique()), fill_value=0.0)
+    return allocated.reset_index(), pd.DataFrame(validation), races
 
-def iter_atlasio_records(path):
-    yield from iter_map_records(path)
+
+def preprocess_elections(args, graph, progress):
+    layers = parse_layers(args.election_layer)
+    unknown_years = layers.keys() - RACE_MANIFEST.keys()
+    if unknown_years:
+        progress.log(f"WARNING: no statewide race definitions for election years {sorted(unknown_years)}")
+    definitions = {race[0]: (year, *race[1:])
+                   for year in layers for race in RACE_MANIFEST.get(year, ())}
+    selected = requested_races(args.race_ids, definitions)
+    if not selected:
+        raise ValueError("The configured layers have no statewide race definitions")
+    layers = {year: path for year, path in sorted(layers.items())
+              if any(race[0] in selected for race in RACE_MANIFEST.get(year, ()))}
+    graph_ids = graph[args.node_id_col].to_numpy(dtype=np.int64)
+    if not graph_ids.size or not pd.Index(graph_ids).is_unique:
+        raise ValueError("Graph node IDs must be nonempty and unique")
+
+    def decode(node_ids, matrix, metadata):
+        races = metadata["races"]
+        race_ids = [r["race_id"] for r in races]
+        columns = [r[key] for r in races for key in ("dem_col_graph", "rep_col_graph")]
+        if (not races or len(set(race_ids)) != len(race_ids) or set(race_ids) - selected
+                or (args.race_ids and set(race_ids) != selected)):
+            raise ValueError("Allocated race IDs do not match the election selection")
+        if (node_ids.dtype != graph_ids.dtype
+                or not np.array_equal(node_ids, graph_ids)
+                or matrix.dtype != np.float64
+                or matrix.shape != (len(graph_ids), len(columns))
+                or not np.isfinite(matrix).all()):
+            raise ValueError("Allocated vote matrix is invalid")
+        validation = pd.DataFrame(metadata["validation"])
+        if validation["race_id"].tolist() != race_ids:
+            raise ValueError("Allocation validation does not cover the allocated races")
+        for i, race in enumerate(races):
+            race_id = race["race_id"]
+            year, label, dem_candidates, rep_candidates = definitions[race_id]
+            row = validation.iloc[i]
+            if (race["year"] != year or race["label"] != label or row["year"] != year
+                    or row["label"] != label or race["dem_col_graph"] != f"{race_id}DEM"
+                    or race["rep_col_graph"] != f"{race_id}REP"
+                    or race["dem_col_source"] != row["dem_source_col"]
+                    or race["rep_col_source"] != row["rep_source_col"]
+                    or canon(row["dem_source_col"]) not in map(canon, dem_candidates)
+                    or canon(row["rep_source_col"]) not in map(canon, rep_candidates)):
+                raise ValueError(f"Invalid allocation metadata for race {race_id}")
+            sd, sr = float(row["dem_source_total"]), float(row["rep_source_total"])
+            ad, ar = float(row["dem_allocated_total"]), float(row["rep_allocated_total"])
+            if not np.isfinite([sd, sr, ad, ar]).all() or not np.allclose(
+                [ad, ar], matrix[:, 2*i:2*i+2].sum(axis=0), rtol=1e-12, atol=1e-8
+            ):
+                raise ValueError(f"Inconsistent allocated statewide totals for race {race_id}")
+            for metric, expected in allocation_metrics(sd, sr, ad, ar).items():
+                actual = np.nan if pd.isna(row[metric]) else row[metric]
+                if not np.isclose(actual, expected, rtol=1e-12, atol=1e-12, equal_nan=True):
+                    raise ValueError(f"Invalid allocation validation metric {metric} for {race_id}")
+
+        metrics = list(allocation_metrics(0, 0, 0, 0))
+        validation[metrics] = validation[metrics].astype(float)
+        votes = pd.DataFrame(matrix, columns=columns)
+        votes.insert(0, "node_id", node_ids)
+        return votes, validation, races
+
+    def build():
+        with progress.stage(f"Reading and projecting target geometry {args.target_precincts}"):
+            target = load_target_geoms(
+                graph, args.target_precincts, args.target_key_col,
+                args.graph_target_key_col, args.node_id_col,
+            )
+            target = area_geometry(target, args.area_crs)
+        votes = pd.DataFrame({"node_id": graph_ids})
+        validations, races = [], []
+        for index, (year, path) in enumerate(layers.items(), start=1):
+            allocated, validation, layer_races = allocate_layer(
+                year, path, target, args.area_crs, args.race_ids,
+                progress=progress, label=f"Election layer {index}/{len(layers)} ({year})",
+            )
+            if layer_races:
+                votes = votes.merge(allocated, on="node_id", how="left", validate="one_to_one")
+                validations.append(validation)
+                races.extend(layer_races)
+        if not races:
+            raise ValueError("No statewide races have usable election columns")
+        validation = pd.concat(validations, ignore_index=True)
+        metadata = {"races": races, "validation": validation.astype(object).where(
+            validation.notna(), None
+        ).to_dict("records")}
+        matrix = votes.drop(columns="node_id").fillna(0.0).to_numpy(dtype=np.float64)
+        return decode(graph_ids, matrix, metadata), graph_ids, matrix, metadata
+
+    def identify():
+        import geopandas as gpd
+        import pyproj
+        import shapely
+
+        dependency_versions = {}
+        for package in ("geopandas", "shapely", "pyproj", "pyogrio", "fiona", "pandas", "numpy"):
+            try:
+                dependency_versions[package] = version(package)
+            except PackageNotFoundError:
+                dependency_versions[package] = None
+        graph_signatures = input_signatures(args.graph_json)
+        if graph_signatures[0]["sha256"] != graph.attrs["source_sha256"]:
+            raise RuntimeError("Graph JSON changed after it was loaded")
+        return {
+            "algorithm": "geopandas-intersection-buffer0-source-area-v1",
+            "implementation_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            "package_version": __version__,
+            "dependencies": dependency_versions,
+            "geos": shapely.geos_version_string,
+            "proj": pyproj.proj_version_str,
+            "io_engine": gpd.options.io_engine,
+            "graph": graph_signatures,
+            "target": input_signatures(args.target_precincts),
+            "layers": {str(year): input_signatures(path) for year, path in layers.items()},
+            "election_definitions": json.loads(json.dumps(
+                {race_id: definitions[race_id] for race_id in sorted(selected)}
+            )),
+            "strict_selection": bool(args.race_ids),
+            "area_crs": pyproj.CRS.from_user_input(args.area_crs).to_wkt(),
+            "target_key_col": args.target_key_col,
+            "graph_target_key_col": args.graph_target_key_col,
+            "node_id_col": args.node_id_col,
+        }
+
+    if args.election_cache_mode == "off" or args.election_cache_dir is None:
+        progress.log("Shared election cache disabled")
+        result, *_ = build()
+    else:
+        result = cached_allocation(Path(args.election_cache_dir), args.election_cache_mode,
+                                   identify, build, decode, progress)
+    _, validation, races = result
+    missing = selected - {race["race_id"] for race in races}
+    if missing:
+        progress.log(f"WARNING: manifest races with unavailable columns: {', '.join(sorted(missing))}")
+    for row in validation.itertuples(index=False):
+        share_change = row.statewide_dem_share_allocated - row.statewide_dem_share_source
+        discrepancy = not np.isfinite(share_change) or not np.allclose(
+            [row.dem_source_total, row.rep_source_total],
+            [row.dem_allocated_total, row.rep_allocated_total],
+            rtol=1e-9, atol=1e-6,
+        )
+        progress.log(
+            f"{'WARNING: ' if discrepancy else ''}{row.race_id} allocation D "
+            f"{row.dem_source_total:,.6f} → {row.dem_allocated_total:,.6f}, R "
+            f"{row.rep_source_total:,.6f} → {row.rep_allocated_total:,.6f}, "
+            f"statewide D share change {share_change:+.8%}"
+        )
+    return result
+
 
 def chain_id_from_path(path):
     m = re.search(r"(run\d+)", Path(path).name)
     return m.group(1) if m else Path(path).stem
 
-def atlasio_assignment(districting, graph_nodes, key_col, node_id_col):
-    cached = cached_assignment_series(districting, node_id_col=node_id_col)
-    if cached is not None:
-        return cached.sort_index()
+class AssignmentIndex:
+    def __init__(self, graph, atlas_key_col, node_id_col, county_col):
+        self.node_ids = graph[node_id_col].to_numpy(dtype=np.int64)
+        self.normalize_key = lru_cache(maxsize=4 * len(graph))(norm_atlas_key)
+        name_positions = {}
+        for i, raw_key in enumerate(graph[atlas_key_col]):
+            key = self.normalize_key(raw_key)
+            if key in name_positions:
+                raise ValueError(f"Duplicate graph key for {atlas_key_col}: {key!r}")
+            name_positions[key] = i
+        # The canonical parser flattens AtlasIO assignments to dicts. Keep the
+        # legacy precedence of numeric node IDs over coincident precinct names.
+        self.key_positions = name_positions | {
+            str(node_id): i for i, node_id in enumerate(self.node_ids)
+        }
+        counties, labels = pd.factorize(graph[county_col])
+        self.county_positions = counties
+        self.county_count = len(labels)
+        self.county_nodes = None if (counties >= 0).all() else counties >= 0
 
-    node_ids = graph_nodes[node_id_col].astype(int).tolist()
-    name_to_id = {norm_atlas_key(row[key_col]): int(row[node_id_col]) for _, row in graph_nodes.iterrows()}
-    districting = maybe_json_loads(districting)
-    if isinstance(districting, list) and districting:
-        if all(isinstance(x, dict) and len(x) == 1 for x in districting):
-            out, unmatched = {}, []
-            for item in districting:
-                k, d = next(iter(item.items()))
-                node_id = name_to_id.get(norm_atlas_key(k))
-                if node_id is None: unmatched.append(norm_atlas_key(k)); continue
-                out[node_id] = dist_label(d)
-            if unmatched: raise ValueError(f"{len(unmatched)} unmatched Atlas keys; examples={unmatched[:5]}")
-            if len(out) != len(graph_nodes): raise ValueError(f"matched {len(out)} but graph has {len(graph_nodes)}")
-            s = pd.Series(out, dtype=int); s.index.name = node_id_col; return s.sort_index()
-        if len(districting) == len(graph_nodes) and not isinstance(districting[0], (list, tuple, dict, set)):
-            s = pd.Series([dist_label(x) for x in districting], index=node_ids, dtype=int)
-            s.index.name = node_id_col; return s.sort_index()
-    if isinstance(districting, dict):
-        graph_id_strings = {str(x) for x in node_ids}
-        out = {}
-        for k, d in districting.items():
-            key = norm_atlas_key(k)
-            node_id = int(key) if str(key) in graph_id_strings else name_to_id.get(key)
-            if node_id is None: raise ValueError(f"districting key {k!r} unmatched")
-            out[node_id] = dist_label(d)
-        s = pd.Series(out, dtype=int); s.index.name = node_id_col; return s.sort_index()
-    raise ValueError(f"unsupported districting type {type(districting)}")
+    def districts(self, districting):
+        if isinstance(districting, DenseDistricting):
+            if not np.array_equal(districting.node_ids, self.node_ids):
+                raise ValueError("Sweep node IDs or graph order differ from responsiveness graph")
+            return districting.districts
 
-def compliance(assignment, graph_nodes, node_id_col, county_col, max_per_county):
-    cached = cached_compliance(assignment)
-    if cached is not None:
-        return cached
+        districts = np.empty(len(self.node_ids), dtype=np.int64)
+        assigned = np.zeros(len(self.node_ids), dtype=bool)
+        for key, label in districting.items():
+            position = self.key_positions.get(self.normalize_key(key))
+            if position is None:
+                raise ValueError(f"Unmatched districting key {key!r}")
+            district = dist_label(label)
+            if assigned[position] and districts[position] != district:
+                raise ValueError(f"Conflicting assignments for graph node {self.node_ids[position]}")
+            districts[position] = district
+            assigned[position] = True
+        if not assigned.all():
+            raise ValueError(f"Assignment is missing {len(assigned) - assigned.sum():,} graph nodes")
+        return districts
 
-    a = assignment.rename("DISTRICT").rename_axis(node_id_col).reset_index()
-    a[node_id_col] = pd.to_numeric(a[node_id_col], errors="coerce")
-    nodes = graph_nodes[[node_id_col, county_col]].copy()
-    nodes[node_id_col] = pd.to_numeric(nodes[node_id_col], errors="coerce")
-    assigned = nodes.merge(a, on=node_id_col, how="left")
-    by_county = assigned.dropna(subset=["DISTRICT"]).groupby(county_col)["DISTRICT"].nunique()
-    double_cross = int((by_county > max_per_county).sum())
-    return {"compliant": double_cross == 0, "double_cross_count": double_cross,
-            "worst_split": int(by_county.max()) if len(by_county) else 0}
+    def compliance(self, districts, max_per_county):
+        counties = self.county_positions
+        if self.county_nodes is not None:
+            districts = districts[self.county_nodes]
+            counties = counties[self.county_nodes]
+        splits = county_split_sizes(districts, counties, self.county_count)
+        return int(np.count_nonzero(splits > max_per_county)), int(splits.max(initial=0))
 
-def load_assignments(chain_files, graph_nodes, atlas_key_col, node_id_col, county_col, max_per_county, max_maps, no_filter):
-    assignments, rows = [], []
-    for chain in chain_files:
+
+def iter_assignments(args, graph, progress, summaries, excluded):
+    index = AssignmentIndex(graph, args.atlas_key_col, args.node_id_col, args.county_col)
+    for chain_number, chain in enumerate(args.chain_files, start=1):
         chain_id = chain_id_from_path(chain)
-        action = "Analyzing shared assignments" if configured_sweep() else "Sweeping chain"
-        print(f"\n{action} {chain_id}: {chain}")
-        seen = kept = invalid = 0
+        summary = ParseSummary(path=Path(chain), chain_id=chain_id)
+        sweep_size = audited_sweep_size(
+            chain, args.graph_json, max_records=args.max_maps_per_chain,
+            node_id_col=args.node_id_col, key_col=args.atlas_key_col, county_col=args.county_col,
+            max_districts_per_county=args.max_districts_per_county,
+        )
+        if sweep_size is None:
+            if configured_sweep() is not None:
+                progress.log(f"{chain_id}: rereading source for complete parse diagnostics")
+            records = iter_map_records(chain, summary=summary)
+            action = "reading AtlasIO and checking compliance"
+        else:
+            records = (
+                {"districting": record.districting, "name": record.name,
+                 "line_number": record.line_number}
+                for record in iter_sweep_records(chain)
+            )
+            action = "reading shared assignments and compliance"
+        limit = args.max_maps_per_chain
+        total = sweep_size if sweep_size is not None else limit
+        total_text = f"/{total:,}" if total is not None else ""
+        seen = kept = invalid = filtered = 0
         dcs, worsts = [], []
-        for rec in iter_atlasio_records(chain):
-            seen += 1
-            if max_maps is not None and seen > max_maps: break
-            try:
-                assn = atlasio_assignment(rec["districting"], graph_nodes, atlas_key_col, node_id_col)
-                comp = compliance(assn, graph_nodes, node_id_col, county_col, max_per_county)
-                dcs.append(comp["double_cross_count"]); worsts.append(comp["worst_split"])
-                if (not no_filter) and (not comp["compliant"]): continue
-                assignments.append({"source": "ensemble", "chain_id": chain_id, "map_index": seen,
-                                    "proposal": rec.get("name", seen), "assignment": assn})
-                kept += 1
-            except Exception as exc:
-                invalid += 1
-                if invalid <= 5: print(f"  FAILED map {seen}: {type(exc).__name__}: {exc}")
-        rows.append({"chain_id": chain_id, "maps_seen": seen, "maps_retained": kept,
-                     "invalid_maps": invalid, "retained_fraction": kept / max(seen, 1),
-                     "avg_double_crosses": float(np.mean(dcs)) if dcs else np.nan,
-                     "max_double_crosses": int(np.max(dcs)) if dcs else 0,
-                     "worst_single_county_split": int(np.max(worsts)) if worsts else 0})
-        print(f"  maps_seen={seen}\n  maps_retained={kept}\n  invalid_maps={invalid}")
-    if not assignments: raise RuntimeError("No ensemble assignments retained")
-    return assignments, pd.DataFrame(rows)
+        label = f"chain {chain_number}/{len(args.chain_files)} {chain_id}: {action} ({chain})"
+        try:
+            with progress.stage(label):
+                for seen, record in enumerate(islice(records, limit), start=1):
+                    item = {"source": "ensemble", "chain_id": chain_id, "map_index": seen,
+                            "proposal": record["name"], "line_number": record["line_number"]}
+                    try:
+                        raw = record["districting"]
+                        districts = index.districts(raw)
+                        count = int(pd.unique(districts).size)
+                        if count != args.n_districts:
+                            raise ValueError(f"Expected {args.n_districts} districts, found {count}")
+                        if isinstance(raw, DenseDistricting):
+                            dc, worst = (raw.compliance[key]
+                                         for key in ("double_cross_count", "worst_split"))
+                        else:
+                            dc, worst = index.compliance(districts, args.max_districts_per_county)
+                    except (ValueError, TypeError, OverflowError) as exc:
+                        invalid += 1
+                        excluded.append({**item, "stage": "assignment", "reason": str(exc)})
+                        if invalid <= 5:
+                            progress.log(f"WARNING: {chain_id} map {seen} excluded: {exc}")
+                    else:
+                        dcs.append(dc)
+                        worsts.append(worst)
+                        if args.no_compliance_filter or dc == 0:
+                            kept += 1
+                            yield {**item, "assignment": districts}
+                        else:
+                            filtered += 1
+                    if seen % 250 == 0:
+                        progress.log(f"{chain_id}: {seen:,}{total_text} parsed, {kept:,} kept, "
+                                     f"{filtered:,} compliance exclusions, {invalid:,} invalid")
+                if sweep_size is not None and seen != sweep_size:
+                    raise ValueError(f"Expected {sweep_size:,} cached maps, read {seen:,}")
+        except (OSError, ValueError) as exc:
+            line = summary.lines_seen if sweep_size is None else None
+            excluded.append({"source": "ensemble", "chain_id": chain_id, "line_number": line,
+                             "stage": "read_error", "reason": str(exc)})
+            location = f", line {line}" if line is not None else ""
+            raise RuntimeError(f"Cannot finish reading {chain_id} ({chain}){location}: {exc}") from exc
+        finally:
+            parse_failures = summary.records_seen - summary.records_yielded
+            for error in summary.errors:
+                progress.log(f"WARNING: {chain_id} parser excluded {error}")
+                line = re.match(r"line (\d+):", error)
+                excluded.append({"source": "ensemble", "chain_id": chain_id,
+                                 "line_number": int(line[1]) if line else None,
+                                 "stage": "parse", "reason": error})
+            maps_seen = seen + parse_failures
+            summaries.append({
+                "chain_id": chain_id, "maps_seen": maps_seen, "maps_retained": kept,
+                "invalid_maps": invalid + parse_failures,
+                "parse_failures": parse_failures, "compliance_exclusions": filtered,
+                "retained_fraction": kept / max(maps_seen, 1),
+                "avg_double_crosses": float(np.mean(dcs)) if dcs else np.nan,
+                "max_double_crosses": max(dcs, default=0),
+                "worst_single_county_split": max(worsts, default=0),
+            })
+            progress.log(f"{chain_id}: {seen:,}{total_text} parsed, {kept:,} kept, {filtered:,} "
+                         f"compliance exclusions, {invalid:,} invalid assignments, "
+                         f"{parse_failures:,} parser exclusions")
+            if limit is not None and seen < limit:
+                progress.log(f"WARNING: {chain_id} supplied {seen:,} of {limit:,} requested maps")
+
 
 def read_crosswalk(path):
     cw = pd.read_csv(path, dtype=str)
@@ -393,29 +648,37 @@ def official_assignment(block_plan, cw, graph_nodes, graph_key_col, node_id_col)
     lookup = graph_nodes[[node_id_col, graph_key_col]].copy()
     lookup[graph_key_col] = lookup[graph_key_col].map(norm)
     matched = pa.rename(columns={"PRECINCT_NAME": graph_key_col}).merge(lookup, on=graph_key_col, how="inner")
-    print(f"  official precinct assignment matched {matched[node_id_col].nunique():,} / {graph_nodes[node_id_col].nunique():,} graph nodes")
+    print(f"  official precinct assignment matched {matched[node_id_col].nunique():,} / "
+          f"{graph_nodes[node_id_col].nunique():,} graph nodes", flush=True)
     s = pd.Series(matched["DISTRICT"].astype(int).to_numpy(), index=matched[node_id_col].astype(int))
     s.index.name = node_id_col
     return s[~s.index.duplicated(keep="first")].sort_index().astype(int)
 
-def load_officials(graph_nodes, crosswalk_csv, enacted, overturned, remedial, official_key_col, node_id_col, block_col, district_col):
-    cw = read_crosswalk(crosswalk_csv)
+def load_officials(graph_nodes, cw, enacted, overturned, remedial,
+                   official_key_col, node_id_col, block_col, district_col, *, progress):
     out = []
-    for label, path in {"Enacted ('25)": enacted, "Overturned ('21)": overturned, "Remedial ('22)": remedial}.items():
-        print(f"\nReading official plan: {label}")
-        assn = official_assignment(read_baf(path, block_col, district_col), cw, graph_nodes, official_key_col, node_id_col)
-        out.append({"source": label, "chain_id": "", "map_index": "", "proposal": label, "assignment": assn})
+    plans = {"Enacted ('25)": enacted, "Overturned ('21)": overturned, "Remedial ('22)": remedial}
+    for number, (label, path) in enumerate(plans.items(), start=1):
+        with progress.stage(f"Loading official plan {number}/{len(plans)} {label}: {path}"):
+            assn = official_assignment(
+                read_baf(path, block_col, district_col), cw, graph_nodes, official_key_col, node_id_col
+            )
+        out.append({"source": label, "chain_id": "", "map_index": "",
+                    "proposal": label, "assignment": assn})
     return out
+
 
 def load_publics(
     graph_nodes,
-    crosswalk_csv,
+    cw,
     public_plan_dir,
     official_key_col,
     node_id_col,
     block_col,
     district_col,
     expected_districts,
+    *,
+    progress,
 ):
     source = Path(public_plan_dir)
     if not source.exists():
@@ -424,10 +687,9 @@ def load_publics(
     if not paths:
         raise ValueError(f"No public plan CSV files found in {source}")
 
-    cw = read_crosswalk(crosswalk_csv)
     graph_node_count = graph_nodes[node_id_col].nunique()
     out, manifest_rows = [], []
-    for path in paths:
+    for number, path in enumerate(paths, start=1):
         row = {"plan_id": path.stem, "path": str(path), "status": "failed", "reason": ""}
         try:
             block_plan = read_baf(path, block_col, district_col)
@@ -469,18 +731,13 @@ def load_publics(
             )
         except Exception as exc:
             row["reason"] = f"{type(exc).__name__}: {exc}"
-            print(f"  Skipping public plan {path.name}: {row['reason']}")
+            progress.log(f"WARNING: skipping public plan {path.name}: {row['reason']}")
         manifest_rows.append(row)
+        if number % 25 == 0:
+            progress.log(f"Loaded {number:,}/{len(paths):,} public plans")
 
-    print(f"Public plans accepted for responsiveness: {len(out)} / {len(paths)}")
+    progress.log(f"Public plans accepted for responsiveness: {len(out)} / {len(paths)}")
     return out, pd.DataFrame(manifest_rows)
-
-def dem_seats(assignment, votes, dem_col, rep_col, node_id_col="node_id"):
-    a = assignment.rename("DISTRICT").rename_axis(node_id_col).reset_index()
-    a[node_id_col] = pd.to_numeric(a[node_id_col], errors="coerce").astype(int)
-    df = votes[[node_id_col, dem_col, rep_col]].merge(a, on=node_id_col, how="inner")
-    g = df.groupby("DISTRICT")[[dem_col, rep_col]].sum()
-    return int((g[dem_col] > g[rep_col]).sum())
 
 def race_abbrev(race_id):
     """Compact labels for the right side of the histogram plot."""
@@ -505,24 +762,94 @@ def race_abbrev(race_id):
     return yy + mapping.get(code, code)
 
 
-def evaluate(assignments, officials, votes, races):
-    ens_rows, off_rows, race_rows = [], [], []
-    for r in races:
-        dg, rg = r["dem_col_graph"], r["rep_col_graph"]
-        if dg not in votes.columns or rg not in votes.columns: continue
+class DistrictVoteTotals:
+    def __init__(self, votes, columns):
+        self.node_index = pd.Index(votes["node_id"])
+        self.votes = votes[columns]
+
+    def for_assignment(self, assignment):
+        # Preserve the vote-table order used by the old left-side inner join,
+        # and pandas' compensated groupby sum used for seat comparisons.
+        if isinstance(assignment, pd.Series):
+            positions = assignment.index.get_indexer(self.node_index)
+            covered = positions >= 0
+            return self.votes.loc[covered].groupby(assignment.to_numpy()[positions[covered]]).sum()
+        return self.votes.groupby(assignment).sum()
+
+
+def evaluate(assignments, officials, votes, races, *, progress, n_districts,
+             expected_maps=None, excluded=None):
+    columns = [r[key] for r in races for key in ("dem_col_graph", "rep_col_graph")]
+    totals = DistrictVoteTotals(votes, columns)
+    race_rows = []
+    for race in races:
+        dg, rg = race["dem_col_graph"], race["rep_col_graph"]
         td, tr = float(votes[dg].sum()), float(votes[rg].sum())
-        share = td / (td + tr) if td + tr > 0 else np.nan
-        race_rows.append({"year": r["year"], "race_id": r["race_id"], "abbr": race_abbrev(r["race_id"]),
-                          "label": r["label"], "dem_col": dg, "rep_col": rg,
-                          "statewide_dem_share": share,
-                          "statewide_dem_votes": td, "statewide_rep_votes": tr})
-        for item in assignments + officials:
-            row = {"year": r["year"], "race_id": r["race_id"], "label": r["label"],
-                   "statewide_dem_share": share, "source": item["source"],
-                   "chain_id": item["chain_id"], "map_index": item["map_index"],
-                   "proposal": item["proposal"], "dem_seats": dem_seats(item["assignment"], votes, dg, rg)}
-            (ens_rows if item["source"] == "ensemble" else off_rows).append(row)
-    return pd.DataFrame(ens_rows), pd.DataFrame(off_rows), pd.DataFrame(race_rows)
+        race_rows.append({
+            "year": race["year"], "race_id": race["race_id"],
+            "abbr": race_abbrev(race["race_id"]), "label": race["label"],
+            "dem_col": dg, "rep_col": rg,
+            "statewide_dem_share": td / (td + tr) if td + tr > 0 else np.nan,
+            "statewide_dem_votes": td, "statewide_rep_votes": tr,
+        })
+    race_summary = pd.DataFrame(race_rows)
+
+    def seats(item):
+        grouped = totals.for_assignment(item["assignment"])
+        if len(grouped) != n_districts:
+            raise ValueError(f"{item['proposal']}: expected {n_districts} districts with graph "
+                             f"nodes, found {len(grouped)}")
+        values = grouped.to_numpy()
+        return np.count_nonzero(values[:, ::2] > values[:, 1::2], axis=0)
+
+    def frame(metadata, counts):
+        num_maps = len(metadata)
+        if not num_maps:
+            counts = np.empty((0, len(races)), dtype=int)
+        data = {key: np.repeat(race_summary[key].to_numpy(), num_maps)
+                for key in ("year", "race_id", "label", "statewide_dem_share")}
+        data.update({key: np.tile(np.asarray([item[i] for item in metadata], dtype=object),
+                                  len(races))
+                     for i, key in enumerate(("source", "chain_id", "map_index", "proposal"))})
+        data["dem_seats"] = np.asarray(counts).T.ravel()
+        return pd.DataFrame(data)
+
+    refs, ref_counts = [], []
+    with progress.stage("Evaluating official and requested public plans"):
+        for number, item in enumerate(officials, start=1):
+            refs.append((item["source"], item["chain_id"], item["map_index"], item["proposal"]))
+            ref_counts.append(seats(item))
+            if item["source"] != PUBLIC_SOURCE or number % 25 == 0:
+                progress.log(f"Reference plan {number:,}/{len(officials):,}: {item['proposal']}")
+
+    ensemble, ens_counts = [], []
+    aggregation_seconds = 0.0
+    with progress.stage(f"Streaming ensemble maps and aggregating votes across {len(races)} races",
+                        heartbeat=False):
+        for number, item in enumerate(assignments, start=1):
+            started = perf_counter()
+            try:
+                counts = seats(item)
+            except (ValueError, TypeError, IndexError) as exc:
+                if excluded is None:
+                    raise
+                excluded.append({key: value for key, value in item.items() if key != "assignment"}
+                                | {"stage": "evaluation", "reason": str(exc)})
+                progress.log(f"WARNING: {item['chain_id']} map {item['map_index']} "
+                             f"excluded during evaluation: {exc}")
+            else:
+                ens_counts.append(counts)
+                ensemble.append((item["source"], item["chain_id"], item["map_index"],
+                                 item["proposal"]))
+            aggregation_seconds += perf_counter() - started
+            if number % 250 == 0:
+                total = f" of {expected_maps:,} requested" if expected_maps is not None else ""
+                progress.log(f"Aggregated {len(ensemble):,}/{number:,} eligible maps{total} "
+                             f"({aggregation_seconds:.1f}s in vote aggregation)")
+        progress.log(f"Aggregated {len(ensemble):,} retained maps "
+                     f"({aggregation_seconds:.1f}s in vote aggregation)")
+    return frame(ensemble, ens_counts), frame(refs, ref_counts), race_summary
+
 
 def plot(ensemble, official, races, output, title, n_districts):
     """
@@ -661,7 +988,7 @@ def plot(ensemble, official, races, output, title, n_districts):
     output.parent.mkdir(parents=True, exist_ok=True)
     output = save_figure(fig, output, dpi=300, bbox_inches="tight")
     plt.close(fig)
-    print(f"Wrote figure: {output}")
+    print(f"Wrote figure: {output}", flush=True)
 
 
 def parse_args():
@@ -692,80 +1019,110 @@ def parse_args():
     p.add_argument("--overlay-public-plans", action="store_true")
     p.add_argument("--public-plan-dir", default=None)
     p.add_argument("--public-seats-output", default=None)
+    p.add_argument("--race-ids", nargs="+", metavar="ID",
+                   help="Evaluate only these statewide race IDs, e.g. G20PRE G24USS")
+    p.add_argument("--election-cache-dir", type=Path,
+                   help="Shared directory for validated election allocations")
+    p.add_argument("--election-cache-mode", choices=("use", "rebuild", "off"), default="use",
+                   help="Reuse, rebuild, or bypass the shared election allocation cache")
+    p.add_argument("--progress-interval", type=float, default=60.0, metavar="SECONDS",
+                   help="Wall and CPU time heartbeat interval (0 disables heartbeats)")
     p.add_argument("--title", default="Ohio congressional responsiveness across statewide elections")
     return p.parse_args()
 
 def main():
     args = parse_args()
-    outdir = Path(args.output_dir); outdir.mkdir(parents=True, exist_ok=True)
-    output_plot = Path(args.output) if args.output else outdir / "ohio_responsiveness_all_statewide_races.png"
+    if args.election_cache_mode == "rebuild" and args.election_cache_dir is None:
+        raise ValueError("--election-cache-mode rebuild requires --election-cache-dir")
+    if not np.isfinite(args.progress_interval) or args.progress_interval < 0:
+        raise ValueError("--progress-interval must be finite and nonnegative")
+    outdir = Path(args.output_dir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    output_plot = Path(args.output) if args.output else (
+        outdir / "ohio_responsiveness_all_statewide_races.png"
+    )
+    progress = Progress(args.progress_interval)
+    with progress.stage(f"Reading graph {args.graph_json}"):
+        graph = read_graph_nodes(args.graph_json)
+        progress.log(f"Loaded {len(graph):,} graph nodes")
 
-    print("="*80); print("Ohio responsiveness plot: all statewide D/R races"); print("="*80)
+    votes, validation, races = preprocess_elections(args, graph, progress)
+    with progress.stage("Writing allocated vote, validation, and race manifest CSVs"):
+        votes.to_csv(outdir / "oh_graph_node_votes_all_statewide_races.csv", index=False)
+        validation.to_csv(outdir / "oh_election_allocation_validation.csv", index=False)
+        pd.DataFrame(races).to_csv(outdir / "oh_statewide_race_manifest_used.csv", index=False)
 
-    graph = read_graph_nodes(args.graph_json)
-    target = load_target_geoms(graph, args.target_precincts, args.target_key_col, args.graph_target_key_col, args.node_id_col)
-
-    votes = pd.DataFrame({"node_id": graph[args.node_id_col].astype(int)})
-    validations, races_all = [], []
-    for year, path in sorted(parse_layers(args.election_layer).items()):
-        alloc, val, races = allocate_layer(year, path, target, args.area_crs)
-        votes = votes.merge(alloc, on="node_id", how="left")
-        validations.append(val); races_all.extend(races)
-    votes = votes.fillna(0.0)
-
-    validations_df = pd.concat(validations, ignore_index=True) if validations else pd.DataFrame()
-    votes.to_csv(outdir / "oh_graph_node_votes_all_statewide_races.csv", index=False)
-    validations_df.to_csv(outdir / "oh_election_allocation_validation.csv", index=False)
-    pd.DataFrame(races_all).to_csv(outdir / "oh_statewide_race_manifest_used.csv", index=False)
-
-    assignments, comp = load_assignments(args.chain_files, graph, args.atlas_key_col, args.node_id_col, args.county_col,
-                                         args.max_districts_per_county, args.max_maps_per_chain, args.no_compliance_filter)
-    comp.to_csv(outdir / "oh_responsiveness_compliance_summary.csv", index=False)
-    print(comp.to_string(index=False))
-
-    officials = load_officials(graph, args.crosswalk_csv, args.enacted_baf, args.overturned_baf, args.remedial_baf,
-                               args.official_key_col, args.node_id_col, args.assignment_block_col, args.assignment_district_col)
-
+    with progress.stage(f"Reading reference-plan block crosswalk {args.crosswalk_csv}"):
+        crosswalk = read_crosswalk(args.crosswalk_csv)
+    officials = load_officials(
+        graph, crosswalk, args.enacted_baf, args.overturned_baf, args.remedial_baf,
+        args.official_key_col, args.node_id_col, args.assignment_block_col,
+        args.assignment_district_col, progress=progress,
+    )
     publics = []
     if args.overlay_public_plans:
         if args.public_plan_dir is None:
             raise ValueError("--overlay-public-plans requires --public-plan-dir")
-        publics, public_manifest = load_publics(
-            graph,
-            args.crosswalk_csv,
-            args.public_plan_dir,
-            args.official_key_col,
-            args.node_id_col,
-            args.assignment_block_col,
-            args.assignment_district_col,
-            args.n_districts,
-        )
-        public_manifest.to_csv(
-            outdir / "oh_responsiveness_public_plan_manifest.csv", index=False
-        )
+        with progress.stage(f"Loading public plans {args.public_plan_dir}"):
+            publics, public_manifest = load_publics(
+                graph, crosswalk, args.public_plan_dir, args.official_key_col,
+                args.node_id_col, args.assignment_block_col, args.assignment_district_col,
+                args.n_districts, progress=progress,
+            )
+            public_manifest.to_csv(
+                outdir / "oh_responsiveness_public_plan_manifest.csv", index=False
+            )
 
-    ens, evaluated_refs, race_summary = evaluate(
-        assignments, officials + publics, votes, races_all
-    )
+    summaries, excluded = [], []
+    assignments = iter_assignments(args, graph, progress, summaries, excluded)
+    expected_maps = (args.max_maps_per_chain * len(args.chain_files)
+                     if args.max_maps_per_chain is not None else None)
+    try:
+        ens, evaluated_refs, race_summary = evaluate(
+            assignments, officials + publics, votes, races, progress=progress,
+            n_districts=args.n_districts, expected_maps=expected_maps, excluded=excluded,
+        )
+    finally:
+        assignments.close()
+        with progress.stage("Writing chain compliance and map exclusion CSVs"):
+            failures = pd.DataFrame(
+                excluded, columns=["source", "chain_id", "map_index", "proposal", "line_number",
+                                   "stage", "reason"],
+            )
+            evaluation_counts = failures[failures["stage"] == "evaluation"]["chain_id"].value_counts()
+            for row in summaries:
+                evaluation_failures = int(evaluation_counts.get(row["chain_id"], 0))
+                row["evaluation_exclusions"] = evaluation_failures
+                row["invalid_maps"] += evaluation_failures
+                row["maps_retained"] -= evaluation_failures
+                row["retained_fraction"] = row["maps_retained"] / max(row["maps_seen"], 1)
+            compliance = pd.DataFrame(summaries)
+            compliance.to_csv(outdir / "oh_responsiveness_compliance_summary.csv", index=False)
+            failures.to_csv(outdir / "oh_responsiveness_excluded_maps.csv", index=False)
+            if summaries:
+                progress.log("Chain counts:\n" + compliance.to_string(index=False))
+
+    if ens.empty:
+        raise RuntimeError("No ensemble assignments retained")
     off = evaluated_refs[evaluated_refs["source"].isin(PLAN_STYLES)].copy()
-    public_seats = evaluated_refs[
-        evaluated_refs["source"] == PUBLIC_SOURCE
-    ].copy()
-    ens.to_csv(outdir / "oh_responsiveness_ensemble_seats.csv", index=False)
-    off.to_csv(outdir / "oh_responsiveness_official_plan_seats.csv", index=False)
-    if args.overlay_public_plans:
-        public_seats_output = (
-            Path(args.public_seats_output)
-            if args.public_seats_output
-            else outdir / "oh_responsiveness_public_plan_seats.csv"
-        )
-        public_seats_output.parent.mkdir(parents=True, exist_ok=True)
-        public_seats.to_csv(public_seats_output, index=False)
-        print(f"Wrote public-plan seats: {public_seats_output}")
-    race_summary.to_csv(outdir / "oh_responsiveness_race_summary.csv", index=False)
+    with progress.stage("Writing ensemble, reference, and race summary CSVs"):
+        ens.to_csv(outdir / "oh_responsiveness_ensemble_seats.csv", index=False)
+        off.to_csv(outdir / "oh_responsiveness_official_plan_seats.csv", index=False)
+        if args.overlay_public_plans:
+            public_seats = evaluated_refs[evaluated_refs["source"] == PUBLIC_SOURCE]
+            public_seats_output = (
+                Path(args.public_seats_output) if args.public_seats_output
+                else outdir / "oh_responsiveness_public_plan_seats.csv"
+            )
+            public_seats_output.parent.mkdir(parents=True, exist_ok=True)
+            public_seats.to_csv(public_seats_output, index=False)
+            progress.log(f"Wrote public-plan seats: {public_seats_output}")
+        race_summary.to_csv(outdir / "oh_responsiveness_race_summary.csv", index=False)
 
-    plot(ens, off, race_summary, output_plot, args.title, args.n_districts)
-    print("\nDone."); print(f"Output directory: {outdir}")
+    with progress.stage("Generating responsiveness figure"):
+        plot(ens, off, race_summary, output_plot, args.title, args.n_districts)
+    progress.log(f"Completed responsiveness: {outdir}")
+
 
 if __name__ == "__main__":
     main()

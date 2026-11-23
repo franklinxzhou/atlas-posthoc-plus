@@ -523,6 +523,16 @@ or a probability of drawing a plan.
 
 Explicit paths in `[inputs]` override these generated defaults.
 
+#### Select races for responsiveness
+
+Use the [race-selection runbook](docs/responsiveness.md) to find race IDs,
+compare figures from existing CSVs, or compute just the races you need.
+
+```bash
+atlas-posthoc-plus run responsiveness-zoom -- \
+  --race-ids G20PRE G24USS --output outputs/responsiveness/selected-races.png
+```
+
 The public-plan overlays for both vote comparison and responsiveness can be
 enabled together with:
 
@@ -800,8 +810,8 @@ layer covering the manifest's metro areas.
 | `regional-african-american-cvap` | `workflows.demographics.regional_black_cvap` | District-level CUA/MSA African American-CVAP location quotients |
 | `partisan-asymmetry` | `workflows.elections.partisan_asymmetry` | Three-plan district margin comparison and near-zero zoom |
 | `recast-precinct-votes` | `workflows.elections.recast_precinct_votes` | Recast precinct returns on three maps with a source-map reconciliation |
-| `responsiveness` | `workflows.elections.responsiveness` | Multi-election responsiveness |
-| `responsiveness-zoom` | `workflows.elections.responsiveness_zoom` | Zoomed responsiveness panels |
+| `responsiveness` | `workflows.elections.responsiveness` | Multi-election responsiveness. [Race-selection runbook](docs/responsiveness.md) |
+| `responsiveness-zoom` | `workflows.elections.responsiveness_zoom` | Zoomed responsiveness panels. [Try race selections](docs/responsiveness.md#try-different-figures-from-existing-csvs) |
 | `municipal-histograms` | `workflows.municipal.histograms` | Pooled municipal histograms |
 | `municipal-distributions` | `workflows.municipal.distributions` | Chain-wise municipal distributions |
 | `municipal-tradeoff` | `workflows.municipal.tradeoff` | Cut/ousted-population tradeoff |
