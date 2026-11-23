@@ -49,7 +49,7 @@ def test_paper_mode_saves_pdf_without_titles_and_adds_panel_labels(
         for artist in figure.findobj()
         if getattr(artist, "get_gid", lambda: None)() == PANEL_LABEL_GID
     ] == ["(a)", "(b)"]
-    assert mpl.rcParams["font.sans-serif"][0] == "Helvetica Neue"
+    assert mpl.rcParams["font.sans-serif"][0] == "Nimbus Sans"
     plt.close(figure)
 
 
