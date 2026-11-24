@@ -1323,7 +1323,7 @@ _register(
                 "--output",
                 "outputs.partisan_asymmetry",
                 "path",
-                default=OutputDefault("elections/partisan-asymmetry.png"),
+                default=OutputDefault("elections/partisan-asymmetry.pdf"),
             ),
             Binding("--close-pp", "workflow.partisan-asymmetry.close_pp"),
             Binding("--title", "workflow.partisan-asymmetry.title"),

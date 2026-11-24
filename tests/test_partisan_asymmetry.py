@@ -1,3 +1,5 @@
+from itertools import pairwise
+
 import pytest
 
 from atlas_posthoc_plus.workflows.elections import partisan_asymmetry
@@ -45,22 +47,57 @@ def test_summary_preserves_close_wins_and_all_vote_denominator(district_votes):
 
 
 def test_zoom_preserves_district_rows_and_margins(tmp_path, monkeypatch, district_votes):
-    def check_alignment(figure, output, **kwargs):
-        overview, zoom = figure.axes
+    panels = {}
+    votes = district_votes.assign(
+        plan=district_votes["plan"].replace({
+            "A": "Enacted ('25)", "B": "Overturned ('21)", "C": "Remedial ('22)",
+        })
+    )
+
+    def capture_panel(figure, output, **kwargs):
+        (axis,) = figure.axes
         figure.canvas.draw()
-        main_markers = [line for line in overview.lines if line.get_linestyle() == "None"]
-        zoom_markers = [line for line in zoom.lines if line.get_linestyle() == "None"]
-        assert len(main_markers) == len(zoom_markers) == 3
-        for main, detail in zip(main_markers, zoom_markers, strict=True):
-            visible = abs(main.get_xdata()) <= 5
-            assert detail.get_xdata() == pytest.approx(main.get_xdata()[visible])
-            main_y = overview.transData.transform(main.get_xydata()[visible])[:, 1]
-            detail_y = zoom.transData.transform(detail.get_xydata())[:, 1]
-            assert detail_y == pytest.approx(main_y)
+        assert all(spine.get_visible() for spine in axis.spines.values())
+        assert axis.get_facecolor() == (1, 1, 1, 1)
+        assert not any(line.get_visible() for line in axis.get_xgridlines() + axis.get_ygridlines())
+        _, district_ranges = axis.collections
+        assert len(district_ranges.get_segments()) == len(axis.get_yticks())
+        markers = axis.lines
+        assert [line.get_marker() for line in markers] == ["o"] * 3
+        assert all(0 < line.get_markeredgewidth() < 0.5 for line in markers)
+        assert sorted(markers, key=lambda line: -line.get_markersize()) == sorted(
+            markers, key=lambda line: line.get_zorder()
+        )
+        assert len({line.get_markersize() for line in markers}) == 3
+        legend = axis.get_legend()
+        assert legend.get_frame_on()
+        assert kwargs["preserve_legend_frames"]
+        text = [legend.get_title(), *legend.get_texts()]
+        assert [line.get_text() for line in text] == [
+            "Official plans", "Enacted (25')", "Overturned (21')", "Remedial (22')",
+        ]
+        heights = [line.get_window_extent().ymin for line in text]
+        assert all(upper > lower for upper, lower in pairwise(heights))
+        legend_box = legend.get_window_extent()
+        max_gap = 8 * figure.dpi / 72
+        assert 0 < legend_box.ymin - axis.bbox.ymin < max_gap
+        assert 0 < min(legend_box.xmin - axis.bbox.xmin, axis.bbox.xmax - legend_box.xmax) < max_gap
+        assert not any(axis.get_title(loc=loc) for loc in ("left", "center", "right"))
+        panels[output] = axis
         return output
 
-    monkeypatch.setattr(partisan_asymmetry, "save_figure", check_alignment)
-    partisan_asymmetry.plot_margins(district_votes, close_pp=5, output=tmp_path / "figure.pdf")
+    monkeypatch.setattr(partisan_asymmetry, "save_figure", capture_panel)
+    full_pdf, zoom_pdf = partisan_asymmetry.plot_margins(votes, output=tmp_path / "figure.pdf")
+
+    assert (full_pdf, zoom_pdf) == (tmp_path / "figure.pdf", tmp_path / "figure-zoom.pdf")
+    overview, zoom = panels[full_pdf], panels[zoom_pdf]
+    assert zoom.get_xlim() == (-20, 20)
+    assert zoom.get_ylim() == overview.get_ylim() == (3.5, -0.5)
+    assert [tick.get_text() for tick in zoom.get_yticklabels()] == ["1", "2", "3", "4"]
+    for main, detail in zip(overview.lines, zoom.lines, strict=True):
+        visible = abs(main.get_xdata()) <= 20
+        assert detail.get_xdata() == pytest.approx(main.get_xdata()[visible])
+        assert detail.get_ydata() == pytest.approx(main.get_ydata()[visible])
 
 
 def test_recast_preserves_split_precinct_pieces_and_audits_missing_blocks(tmp_path):

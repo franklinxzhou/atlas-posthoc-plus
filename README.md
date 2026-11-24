@@ -131,9 +131,10 @@ atlas-posthoc-plus --no-paper-mode suite standard
 
 Paper mode writes vector PDFs with embedded TrueType text, even when a
 configured output ends in `.png`. Its font preference is Nimbus Sans,
-Liberation Sans, Arial, then DejaVu Sans. Axis labels and panel headings use
-10 pt, legends use 9 pt, ticks and annotations use 8 pt, and bold panel
-letters use 11 pt. Numbers printed inside data markers can use 6 pt.
+Liberation Sans, Arial, then DejaVu Sans. Install Nimbus Sans on the rendering
+host to use it consistently. Axis labels and panel headings use 10 pt, legends
+use 9 pt, ticks and annotations use 8 pt, and bold panel letters use 11 pt.
+Numbers printed inside data markers can use 6 pt.
 
 Paper mode removes descriptive plot titles and keeps headings that identify
 panels, such as plan names and zoom ranges. Multi-panel layouts normally
@@ -399,8 +400,8 @@ atlas-posthoc-plus suite full --keep-going
 ## Partisan asymmetry across three plans
 
 `partisan-asymmetry` compares district margins for the same election across
-three plans. Paper mode writes a vector PDF with the full range in panel (a)
-and the near-zero zoom in panel (b).
+three plans. It writes two vector PDFs, the full range at
+`outputs.partisan_asymmetry` and a separate `-zoom.pdf` beside it.
 
 ```bash
 aph-plus --config election.toml --paper-mode run partisan-asymmetry
@@ -414,13 +415,15 @@ The `full` suite runs this analysis when `inputs.district_votes_csv` is set.
 
 The figure uses `100 * (dem_votes - rep_votes) / total_votes`, with minor-party
 and write-in votes included in `total_votes`. Seat counts compare the two
-major parties, and exact ties are counted separately. The full view connects estimates
+major parties, and exact ties are counted separately. Each panel connects estimates
 with the same district number, which can cover different territory across plans.
-The zoom shares the district rows of the full view and uses nested marker sizes
-to show coincident margins. Set `workflow.partisan-asymmetry.close_pp`
-to choose the zoom and close-win threshold (default 5 percentage points). The
-companion `-summary.csv` reports each party's seat count and the count and share
-of those wins within the threshold. Their difference is the Democratic
+Both panels use the same district rows and different-sized dots to show
+coincident margins. The zoom is centered on zero and rounds the 75th percentile
+of absolute margins outward to a readable limit. Set
+`workflow.partisan-asymmetry.close_pp` to choose the close-win threshold
+(default 5 percentage points). The companion `-summary.csv` reports each
+party's seat count and the count and share of those wins within the threshold.
+Their difference is the Democratic
 close-win share minus the Republican close-win share, in percentage points.
 The summary also gives each party's closest win and the signed margin at the
 majority cutoff, after ordering districts from most to least Democratic.
