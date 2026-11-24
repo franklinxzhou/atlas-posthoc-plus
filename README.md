@@ -627,12 +627,28 @@ bins = 40
 atlas-posthoc-plus run reock-histogram
 ```
 
-The figure is saved to `reock/reock-histogram.png` under `outputs.root`.
-The workflow scores any configured `[plans]` assignments from
+Each run writes the following files to `reock/` under `outputs.root`.
+
+- `ensemble-scores.csv` records the selected statistic for each plotted map,
+  with its chain ID, zero-based map index before thinning and burn-in, and
+  proposal number.
+- `official-summary.csv` records the selected statistic for the configured
+  enacted, overturned, and remedial plans.
+- `district-scores.csv` records one Reock score per district for each ensemble,
+  official, and submitted plan scored from geometry. The source and plan ID or
+  chain ID and map index identify the plan.
+- `reock-histogram.pdf` contains the rendered histogram.
+
+When `outputs.reock_histogram` points to a custom path, the workflow writes
+the four standard files alongside the custom figure.
+
+The workflow scores configured `[plans]` assignments using
 `inputs.block_shapefile`. To score submitted block plans, set
-`inputs.reock_public_plan_dir`. To use precomputed Reock overlays, set
+`inputs.reock_public_plan_dir`. For precomputed Reock overlays, set
 `inputs.public_reock_scores_csv` and/or `inputs.official_reock_scores_csv`.
-These CSVs use the same schemas as the Polsby-Popper overlays.
+These inputs use the same schemas as the Polsby-Popper overlays and supply
+plan-level scores. If no official reference is configured, `official-summary.csv`
+contains only the header.
 
 ### Comparison with Greg's scripts
 

@@ -629,6 +629,8 @@ def plot_histogram(
     public_label: str,
     official_label: str,
     metric_name: str = "Polsby-Popper",
+    additional_outpath: Path | None = None,
+    staging_dir: Path | None = None,
 ) -> None:
     scores = ensemble_df["score"].to_numpy()
 
@@ -682,12 +684,17 @@ def plot_histogram(
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
-    destination = Path(outpath)
-    destination.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
-    destination = save_figure(fig, destination, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Wrote figure to {destination}")
+    destinations = (Path(outpath), additional_outpath) if additional_outpath else (Path(outpath),)
+    try:
+        for destination in destinations:
+            if staging_dir is not None:
+                destination = staging_dir / destination.name
+            saved = save_figure(fig, destination, dpi=300, bbox_inches="tight")
+            if staging_dir is None:
+                print(f"Wrote figure to {saved}")
+    finally:
+        plt.close(fig)
 
     print("\nEnsemble score summary")
     print(ensemble_df["score"].describe().to_string())

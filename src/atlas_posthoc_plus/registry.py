@@ -1154,7 +1154,7 @@ _register(
         "reock-histogram",
         "atlas_posthoc_plus.workflows.compactness.reock_histogram",
         "compactness",
-        "Plot Reock compactness from chain assignments and projected geometries.",
+        "Export and plot Reock compactness from chain assignments and projected geometries.",
         (
             GRAPH,
             CHAINS,
@@ -1189,7 +1189,7 @@ _register(
                 "--out",
                 "outputs.reock_histogram",
                 "path",
-                default=OutputDefault("reock/reock-histogram.png"),
+                default=OutputDefault("reock/reock-histogram.pdf"),
             ),
         ),
     )
