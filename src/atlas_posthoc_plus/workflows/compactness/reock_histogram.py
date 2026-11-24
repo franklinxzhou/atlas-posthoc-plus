@@ -1,11 +1,15 @@
-"""Plot Reock scores from AtlasIO assignments and projected unit geometry."""
+"""Export and plot Reock scores from AtlasIO assignments and projected unit geometry."""
 
 from __future__ import annotations
 
 import argparse
+import csv
+import os
+from collections.abc import Callable, Iterable
 from functools import lru_cache
 from itertools import islice
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import geopandas as gpd
 import numpy as np
@@ -16,6 +20,7 @@ from shapely import union_all
 
 from atlas_posthoc_plus.io.atlas_records import iter_map_records
 from atlas_posthoc_plus.io.graph import read_graph_frame
+from atlas_posthoc_plus.paper import paper_output_path
 from atlas_posthoc_plus.workflows.compactness.cut_edges import (
     atlasio_districting_to_series,
     chain_id_from_path,
@@ -36,6 +41,8 @@ from atlas_posthoc_plus.workflows.compactness.polsby_histogram import (
 from atlas_posthoc_plus.workflows.compactness.reock import reock_score
 
 STAT_FUNCTIONS = {"average": np.mean, "minimum": np.min, "maximum": np.max}
+DISTRICT_COLUMNS = ("source", "plan_id", "chain_id", "map_index", "proposal", "district", "score")
+WriteDistrictRows = Callable[[Iterable[tuple[object, ...]]], None]
 
 
 def prepare_units(
@@ -84,8 +91,10 @@ def score_ensemble(
     args: argparse.Namespace,
     graph: pd.DataFrame,
     geometries: gpd.GeoSeries,
+    write_district_rows: WriteDistrictRows,
 ) -> pd.DataFrame:
-    summarize = STAT_FUNCTIONS[STAT_TO_SUMMARY_COL[args.stat]]
+    stat = STAT_TO_SUMMARY_COL[args.stat]
+    summarize = STAT_FUNCTIONS[stat]
 
     @lru_cache(maxsize=256)
     def score_district(positions: tuple[int, ...]) -> float:
@@ -97,10 +106,10 @@ def score_ensemble(
     for path, chain_id in zip(args.chain_files, chain_ids, strict=True):
         print(f"Scoring Reock for {chain_id}: {path}", flush=True)
         sampled = islice(enumerate(iter_map_records(path)), 0, None, args.thin_step)
-        for index, record in islice(sampled, args.max_maps_per_chain):
+        for map_index, record in islice(sampled, args.max_maps_per_chain):
             proposal = parse_step(record["name"])
             if proposal is None:
-                proposal = index * args.output_frequency
+                proposal = map_index * args.output_frequency
             if proposal < args.burnin:
                 continue
             districts = atlasio_districting_to_series(
@@ -114,11 +123,23 @@ def score_ensemble(
                     f"{chain_id} at proposal {proposal} needs a complete assignment to "
                     f"{args.expected_districts} districts."
                 )
-            scores = [
-                score_district(tuple(positions))
-                for positions in districts.groupby(districts).indices.values()
-            ]
-            rows.append({"chain_id": chain_id, "proposal": proposal, "score": summarize(scores)})
+            scores = {
+                district: score_district(tuple(positions))
+                for district, positions in districts.groupby(districts).indices.items()
+            }
+            write_district_rows(
+                ("ensemble", None, chain_id, map_index, proposal, district, score)
+                for district, score in scores.items()
+            )
+            rows.append(
+                {
+                    "chain_id": chain_id,
+                    "map_index": map_index,
+                    "proposal": proposal,
+                    "stat": stat,
+                    "score": summarize(list(scores.values())),
+                }
+            )
 
     if not rows:
         raise ValueError("No ensemble Reock scores remain after filtering/burn-in.")
@@ -126,7 +147,7 @@ def score_ensemble(
 
 
 def reference_scores(
-    args: argparse.Namespace, projected_crs: CRS
+    args: argparse.Namespace, projected_crs: CRS, write_district_rows: WriteDistrictRows
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     public = load_public_scores(args.public_scores_csv, args.stat, metric_name="Reock")
     official = load_official_scores(args.official_scores_csv, args.stat, metric_name="Reock")
@@ -150,7 +171,7 @@ def reference_scores(
     )
     summarize = STAT_FUNCTIONS[STAT_TO_SUMMARY_COL[args.stat]]
 
-    def score_plan(label: str, path: str | Path) -> float:
+    def score_plan(source: str, label: str, path: str | Path) -> float:
         districts, _ = dissolve_plan_blocks(
             blocks=blocks,
             assignment_path=path,
@@ -159,15 +180,22 @@ def reference_scores(
             assignment_district_col=args.assignment_district_col,
             expected_districts=args.expected_districts,
         )
-        return float(summarize([reock_score(geometry) for geometry in districts.geometry]))
+        scores = districts.geometry.map(reock_score)
+        write_district_rows(
+            (source, label, None, None, None, district, score)
+            for district, score in zip(districts["__district__"], scores, strict=True)
+        )
+        return float(summarize(scores))
 
     if official_plans:
         official = pd.DataFrame(
-            {"label": label, "score": score_plan(label, path)} for label, path in official_plans
+            {"label": label, "score": score_plan("official", label, path)}
+            for label, path in official_plans
         )
     if public_plans:
         public = pd.DataFrame(
-            {"plan_id": path.stem, "score": score_plan(path.stem, path)} for path in public_plans
+            {"plan_id": path.stem, "score": score_plan("public", path.stem, path)}
+            for path in public_plans
         )
     return public, official
 
@@ -205,7 +233,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ensemble-label", default="Ensemble")
     parser.add_argument("--public-label", default="Public submitted plans")
     parser.add_argument("--official-label", default="Official plans")
-    parser.add_argument("--out", default="outputs/reock/reock-histogram.png")
+    parser.add_argument("--out", default="outputs/reock/reock-histogram.pdf")
     args = parser.parse_args()
     if args.chain_ids is not None and len(args.chain_ids) != len(args.chain_files):
         parser.error("--chain-ids must have the same length as --chain-files")
@@ -214,6 +242,29 @@ def parse_args() -> argparse.Namespace:
     if args.max_maps_per_chain is not None and args.max_maps_per_chain <= 0:
         parser.error("--max-maps-per-chain must be positive")
     return args
+
+
+def publish_outputs(staged: Path, output_dir: Path) -> None:
+    # Serialize replacement of the bundle when runs share an output directory.
+    paths = sorted(staged.iterdir())
+    destinations = [output_dir / path.name for path in paths]
+    lock_fd = None
+    try:
+        if os.name == "posix":
+            import fcntl
+
+            lock_fd = os.open(output_dir, os.O_RDONLY)
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        for destination in destinations:
+            if destination.is_dir():
+                raise IsADirectoryError(f"Reock output path is a directory: {destination}")
+        for path, destination in zip(paths, destinations, strict=True):
+            path.replace(destination)
+    finally:
+        if lock_fd is not None:
+            os.close(lock_fd)
+    for destination in destinations:
+        print(f"Wrote {destination}")
 
 
 def main() -> None:
@@ -230,23 +281,38 @@ def main() -> None:
         node_id_col=args.node_id_col,
         projected_crs=projected_crs,
     )
-    ensemble = score_ensemble(args, graph, geometries)
-    public, official = reference_scores(args, projected_crs)
-    plot_histogram(
-        ensemble,
-        public,
-        official,
-        args.out,
-        stat=args.stat,
-        bins=args.bins,
-        density=args.density,
-        title=args.title
-        or f"{STAT_TO_SUMMARY_COL[args.stat].capitalize()} district Reock distribution",
-        ensemble_label=args.ensemble_label,
-        public_label=args.public_label,
-        official_label=args.official_label,
-        metric_name="Reock",
-    )
+    figure = paper_output_path(args.out)
+    output_dir = figure.parent
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stat = STAT_TO_SUMMARY_COL[args.stat]
+    with TemporaryDirectory(dir=output_dir) as temp_dir:
+        staged = Path(temp_dir)
+        with (staged / "district-scores.csv").open("w", newline="", encoding="utf-8") as stream:
+            writer = csv.writer(stream)
+            writer.writerow(DISTRICT_COLUMNS)
+            ensemble = score_ensemble(args, graph, geometries, writer.writerows)
+            public, official = reference_scores(args, projected_crs, writer.writerows)
+
+        ensemble.to_csv(staged / "ensemble-scores.csv", index=False)
+        official.assign(stat=stat).to_csv(staged / "official-summary.csv", index=False)
+        pdf = output_dir / "reock-histogram.pdf"
+        plot_histogram(
+            ensemble,
+            public,
+            official,
+            pdf,
+            stat=args.stat,
+            bins=args.bins,
+            density=args.density,
+            title=args.title or f"{stat.capitalize()} district Reock distribution",
+            ensemble_label=args.ensemble_label,
+            public_label=args.public_label,
+            official_label=args.official_label,
+            metric_name="Reock",
+            additional_outpath=figure if figure != pdf else None,
+            staging_dir=staged,
+        )
+        publish_outputs(staged, output_dir)
 
 
 if __name__ == "__main__":
