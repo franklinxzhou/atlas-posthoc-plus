@@ -1,5 +1,6 @@
 from itertools import pairwise
 
+import pandas as pd
 import pytest
 
 from atlas_posthoc_plus.workflows.elections import partisan_asymmetry
@@ -7,6 +8,7 @@ from atlas_posthoc_plus.workflows.elections.partisan_asymmetry import (
     read_margins,
     summarize_margins,
 )
+from atlas_posthoc_plus.workflows.elections.partisan_swing import prepare_vote_table, swing_result
 from atlas_posthoc_plus.workflows.elections.recast_precinct_votes import recast_votes
 
 
@@ -130,3 +132,20 @@ def test_recast_preserves_split_precinct_pieces_and_audits_missing_blocks(tmp_pa
     ]
     assert audit["unallocated_rep_votes"].tolist() == [12, 0]
     assert totals.groupby("plan")["total_votes"].sum().tolist() == [310, 310, 310]
+
+
+def test_swing_area_uses_exact_breakpoints_and_averages_curves_first():
+    votes = pd.DataFrame({
+        "race_id": ["a"] * 3 + ["b"] * 3,
+        "district": [1, 2, 3] * 2,
+        "statewide_dem_share": 0.50,
+        "dem_share": [0.40, 0.48, 0.61, 0.60, 0.52, 0.39],
+    })
+    votes = prepare_vote_table(votes, ["district"])
+    a = swing_result(votes[votes["race_id"] == "a"])
+    assert a.edges == pytest.approx([50, 52, 55])
+    assert a.dem_seats == pytest.approx([1, 2])
+    assert a.rep_seats == pytest.approx([2, 2])
+    assert a.area == pytest.approx(2)
+    average = swing_result(votes)
+    assert average.area == pytest.approx(0)
