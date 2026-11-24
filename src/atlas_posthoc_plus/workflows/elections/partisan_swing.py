@@ -11,6 +11,8 @@ from tempfile import TemporaryDirectory
 import numpy as np
 import pandas as pd
 
+from atlas_posthoc_plus.io.atlas_records import iter_map_records
+
 LOWER_VOTE_PCT = 50.0
 UPPER_VOTE_PCT = 55.0
 PARTY_VOTES = ["dem_votes", "rep_votes"]
@@ -137,6 +139,55 @@ def official_votes(votes: pd.DataFrame) -> Iterator[tuple[Plan, pd.DataFrame]]:
         yield Plan(plan), frame
 
 
+def ensemble_votes(paths: Iterable[Path]) -> Iterator[tuple[Plan, pd.DataFrame]]:
+    identifiers = [*MAP_ID, "district"]
+    for path in paths:
+        votes = prepare_vote_table(read_vote_table(path, identifiers), identifiers)
+        for (chain, index), frame in votes.groupby(MAP_ID, sort=False):
+            yield Plan("", chain, index), frame
+
+
+def chain_votes(
+    graph_path: Path, node_votes_path: Path, paths: Iterable[Path],
+) -> Iterator[tuple[Plan, pd.DataFrame]]:
+    """Stream every saved AtlasIO record and aggregate the same node votes on each map."""
+    from atlas_posthoc_plus.workflows.elections.responsiveness import (
+        AssignmentIndex,
+        DistrictVoteTotals,
+        chain_id_from_path,
+        read_graph_nodes,
+    )
+
+    graph = read_graph_nodes(graph_path)
+    assignment_index = AssignmentIndex(graph, "NAME", "id", "COUNTY")
+    votes = prepare_vote_table(read_vote_table(node_votes_path, ["node_id"]), ["node_id"],
+                               counts_required=True)
+    wanted_nodes = pd.Index(assignment_index.node_ids.astype(str), name="node_id")
+    if not wanted_nodes.is_unique:
+        raise ValueError("Duplicate node IDs in the ensemble graph")
+    by_race = votes.pivot(index="node_id", columns="race_id", values=PARTY_VOTES)
+    if set(by_race.index) != set(wanted_nodes) or by_race.isna().any(axis=None):
+        raise ValueError("Node vote CSV must include every graph node in every election")
+    by_race = by_race.reindex(wanted_nodes)
+    columns = list(by_race.columns)
+    races = by_race.columns.get_level_values("race_id").unique()
+    totals = DistrictVoteTotals(by_race.reset_index(), columns)
+    for path in paths:
+        chain = chain_id_from_path(path)
+        count = 0
+        for count, record in enumerate(iter_map_records(path, skip_bad_json=False), start=1):
+            try:
+                districts = assignment_index.districts(record["districting"])
+            except (ValueError, TypeError, OverflowError) as error:
+                raise ValueError(f"{chain} map {count}: {error}") from error
+            grouped = totals.for_assignment(districts).rename_axis(index="district")
+            frame = pd.concat({race: grouped.xs(race, axis=1, level="race_id") for race in races},
+                              names=["race_id"]).reset_index()
+            yield Plan(record["name"], chain, str(count)), frame
+        if not count:
+            raise ValueError(f"No ensemble maps in {path}")
+
+
 def _check_comparable(result: SwingResult, reference: SwingResult) -> None:
     if result.n_districts != reference.n_districts:
         raise ValueError(f"Expected {reference.n_districts} districts, found {result.n_districts}")
@@ -203,8 +254,12 @@ def _score_and_write(
 
 def write_swing_analysis(
     output: Path, official: Iterable[tuple[Plan, pd.DataFrame]],
+    ensemble: Iterable[tuple[Plan, pd.DataFrame]] | None = None,
 ) -> Path:
-    from atlas_posthoc_plus.workflows.elections.partisan_swing_plot import plot_curves
+    from atlas_posthoc_plus.workflows.elections.partisan_swing_plot import (
+        plot_curves,
+        plot_histogram,
+    )
 
     output.parent.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(dir=output.parent, prefix=f".{output.name}-") as temp:
@@ -213,6 +268,10 @@ def write_swing_analysis(
         if len(officials) != 3:
             raise ValueError("Expected three official plans for the swing analysis")
         plot_curves(working, officials)
+        if ensemble is not None:
+            scores = _score_and_write(working, "ensemble", ensemble, reference=officials[0][1])
+            areas = np.fromiter((result.area for _, result in scores), dtype=float)
+            plot_histogram(working, areas, officials)
         output.mkdir(exist_ok=True)
         for file in working.iterdir():
             file.replace(output / file.name)

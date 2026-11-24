@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import re
 from pathlib import Path
 
@@ -10,9 +11,11 @@ import numpy as np
 from matplotlib.ticker import MaxNLocator
 
 from atlas_posthoc_plus.paper import (
+    OFFICIAL_PLANS_TITLE,
     apply_paper_style,
     figure_legend,
     official_plan_label,
+    official_plan_style,
     save_figure,
 )
 from atlas_posthoc_plus.workflows.elections.partisan_swing import (
@@ -89,3 +92,45 @@ def plot_curves(outdir: Path, officials: list[tuple[Plan, SwingResult]]) -> None
                         facecolor="white", preserve_legend_frames=True)
         finally:
             plt.close(figure)
+
+
+def plot_histogram(
+    outdir: Path, areas: np.ndarray, officials: list[tuple[Plan, SwingResult]],
+) -> None:
+    apply_paper_style()
+    low, high = float(areas.min()), float(areas.max())
+    if high - low < 1e-9:
+        low, high = max(0, low - 0.25), high + 0.25
+    count, edges = np.histogram(areas, bins=min(40, max(8, int(np.sqrt(len(areas))))),
+                                range=(low, high))
+    with (outdir / "ensemble-histogram-bins.csv").open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(["area_bin_start_seat_pp", "area_bin_end_seat_pp", "plans"])
+        writer.writerows(zip(edges[:-1], edges[1:], count, strict=True))
+
+    figure, axis = _panel()
+    try:
+        axis.bar(edges[:-1], count, width=np.diff(edges), align="edge", color="#CCD3DF",
+                 edgecolor="#536174", linewidth=0.6, zorder=1)
+        top = float(count.max())
+        left = min(edges[0], *(result.area for _, result in officials))
+        right = max(edges[-1], *(result.area for _, result in officials))
+        for index, ((plan, result), color) in enumerate(zip(
+            officials, ("#7A5195", "#0072B2", "#D99412"), strict=True,
+        )):
+            style = official_plan_style(plan.label, color=color)
+            dot_y = top * (0.76 + index * 0.045)
+            axis.vlines(result.area, 0, dot_y, **style, linewidth=0.85, zorder=2)
+            axis.plot(result.area, dot_y, label=plan.label, **style, linestyle="none", marker="o",
+                      markersize=(6.5, 4, 5.5)[index], markeredgecolor=INK, markeredgewidth=0.4,
+                      zorder=3)
+        pad = (right - left) * 0.045
+        axis.set(xlim=(max(0, left - pad), right + pad), ylim=(0, top * 1.18),
+                 xlabel="Area between curves (seats × percentage points)", ylabel="Ensemble plans")
+        axis.xaxis.set_major_locator(MaxNLocator(nbins=6))
+        axis.yaxis.set_major_locator(MaxNLocator(integer=True, nbins=6))
+        _boxed_legend(axis, title=OFFICIAL_PLANS_TITLE, loc="best")
+        save_figure(figure, outdir / "ensemble-histogram.pdf", facecolor="white",
+                    preserve_legend_frames=True)
+    finally:
+        plt.close(figure)

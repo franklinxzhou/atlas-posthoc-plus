@@ -1,6 +1,8 @@
+import json
 import sys
 from itertools import pairwise
 
+import numpy as np
 import pandas as pd
 import pytest
 from pypdf import PdfReader
@@ -153,7 +155,8 @@ def test_swing_area_uses_exact_breakpoints_and_averages_curves_first():
     assert average.area == pytest.approx(0)
 
 
-def test_partisan_asymmetry_writes_swing_pdfs_and_audit_csvs(tmp_path, monkeypatch):
+@pytest.mark.parametrize("source", ["district-csv", "atlasio"])
+def test_partisan_asymmetry_writes_swing_pdfs_and_audit_csvs(tmp_path, monkeypatch, source):
     districts = [(1, 40, 60), (2, 48, 52), (3, 62, 38)]
     official = pd.DataFrame(
         [(plan, district, dem, rep, dem + rep) for plan in ("A", "B", "C")
@@ -164,13 +167,38 @@ def test_partisan_asymmetry_writes_swing_pdfs_and_audit_csvs(tmp_path, monkeypat
     official.to_csv(official_path, index=False)
     output = tmp_path / "result.pdf"
     args = ["partisan-asymmetry", "--district-votes", str(official_path), "--output", str(output)]
+    if source == "district-csv":
+        ensemble = tmp_path / "ensemble.csv"
+        pd.DataFrame(
+            [("run1", index, *row) for index in (1, 2) for row in districts],
+            columns=["chain_id", "map_index", "district", "dem_votes", "rep_votes"],
+        ).to_csv(ensemble, index=False)
+        args.extend(["--ensemble-district-votes", str(ensemble)])
+    else:
+        graph, nodes, chain = (tmp_path / name for name in ("graph.json", "nodes.csv", "run1.jsonl"))
+        graph.write_text(json.dumps({"nodes": [
+            {"id": i, "NAME": f"n{i}", "ORIG_NAME": f"n{i}", "COUNTY": "01"}
+            for i in range(3)
+        ]}))
+        pd.DataFrame([(district - 1, dem, rep) for district, dem, rep in districts],
+                     columns=["node_id", "dem_votes", "rep_votes"]).to_csv(nodes, index=False)
+        record = json.dumps({"name": "example", "districting": {"n0": 1, "n1": 2, "n2": 3}})
+        chain.write_text(f'"Atlas"\n{{}}\n{{}}\n{record}\n{record}\n')
+        args.extend(["--ensemble-node-votes", str(nodes), "--ensemble-graph", str(graph),
+                     "--ensemble-chains", str(chain)])
     monkeypatch.setattr(sys, "argv", args)
     partisan_asymmetry.main()
 
     swing = tmp_path / "result-swing"
     assert len(list(swing.glob("0?-*.pdf"))) == 3
+    assert len(PdfReader(swing / "ensemble-histogram.pdf").pages) == 1
     assert len(pd.read_csv(swing / "official-thresholds.csv")) == 9
-    scores = pd.read_csv(swing / "official-scores.csv")
-    assert scores["area_seat_pp"].tolist() == pytest.approx([2, 2, 2])
-    for panel in swing.glob("0?-*.pdf"):
-        assert len(PdfReader(panel).pages) == 1
+    thresholds = pd.read_csv(swing / "ensemble-thresholds.csv")
+    assert len(thresholds) == 6
+    assert np.allclose(thresholds["statewide_dem_share"], 0.5)
+    scores = pd.read_csv(swing / "ensemble-scores.csv")
+    assert scores["map_index"].tolist() == [1, 2]
+    assert scores["area_seat_pp"].tolist() == pytest.approx([2, 2])
+    intervals = pd.read_csv(swing / "ensemble-curves.csv")
+    assert intervals.groupby("map_index")["area_seat_pp"].sum().tolist() == pytest.approx([2, 2])
+    assert pd.read_csv(swing / "ensemble-histogram-bins.csv")["plans"].sum() == 2

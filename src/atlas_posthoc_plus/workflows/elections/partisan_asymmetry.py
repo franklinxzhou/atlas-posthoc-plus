@@ -27,6 +27,8 @@ from atlas_posthoc_plus.paper import (
     save_figure,
 )
 from atlas_posthoc_plus.workflows.elections.partisan_swing import (
+    chain_votes,
+    ensemble_votes,
     official_votes,
     read_vote_table,
     write_swing_analysis,
@@ -226,17 +228,35 @@ def main() -> None:
     parser.add_argument("--title")
     parser.add_argument("--official-swing-votes", type=Path,
                         help="Optional district vote table for the three official swing curves")
+    parser.add_argument("--ensemble-district-votes", type=Path, nargs="+",
+                        help="Preaggregated vote CSVs containing every ensemble plan to score")
+    parser.add_argument("--ensemble-node-votes", type=Path,
+                        help="Already allocated graph-node vote CSV for scoring AtlasIO maps")
+    parser.add_argument("--ensemble-graph", type=Path)
+    parser.add_argument("--ensemble-chains", type=Path, nargs="+")
     args = parser.parse_args()
     if not math.isfinite(args.close_pp) or not 0 < args.close_pp <= 100:
         parser.error("--close-pp must be greater than 0 and at most 100")
+    chain_args = (args.ensemble_node_votes, args.ensemble_graph, args.ensemble_chains)
+    if any(chain_args) and not all(chain_args):
+        parser.error("AtlasIO scoring requires --ensemble-node-votes, --ensemble-graph, and "
+                     "--ensemble-chains")
+    if args.ensemble_district_votes and all(chain_args):
+        parser.error("Supply either ensemble district vote CSVs or AtlasIO inputs")
     try:
         votes = read_margins(args.district_votes)
         swing_votes = (
             read_vote_table(args.official_swing_votes, ["plan", "district"])
             if args.official_swing_votes else votes
         )
+        ensemble = None
+        if args.ensemble_district_votes:
+            ensemble = ensemble_votes(args.ensemble_district_votes)
+        elif all(chain_args):
+            ensemble = chain_votes(args.ensemble_graph, args.ensemble_node_votes,
+                                   args.ensemble_chains)
         swing_output = args.output.with_name(f"{args.output.stem}-swing")
-        write_swing_analysis(swing_output, official_votes(swing_votes))
+        write_swing_analysis(swing_output, official_votes(swing_votes), ensemble)
     except ValueError as error:
         parser.error(str(error))
     summary = summarize_margins(votes, args.close_pp)
