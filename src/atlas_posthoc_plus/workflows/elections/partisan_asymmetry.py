@@ -13,7 +13,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.axes import Axes
+from matplotlib.legend import Legend
 from matplotlib.ticker import MaxNLocator
+from matplotlib.transforms import Bbox
 
 from atlas_posthoc_plus.paper import (
     OFFICIAL_PLANS_TITLE,
@@ -22,15 +25,19 @@ from atlas_posthoc_plus.paper import (
     official_plan_style,
     paper_mode_enabled,
     save_figure,
-    set_panel_title,
 )
 
 VOTE_COLUMNS = ["dem_votes", "rep_votes", "total_votes"]
+PLAN_LEGEND_LABELS = {
+    "Enacted ('25)": "Enacted (25')",
+    "Overturned ('21)": "Overturned (21')",
+    "Remedial ('22)": "Remedial (22')",
+}
 PLAN_STYLES = [
     # Marker sizes and draw order keep plans visible when their margins coincide.
-    {"marker": "o", "color": "#808080", "markersize": 8, "zorder": 3},
-    {"marker": "s", "color": "#D99412", "markersize": 4, "zorder": 5},
-    {"marker": "D", "color": "#23232A", "markersize": 6, "zorder": 4},
+    {"color": "#808080", "markersize": 9, "zorder": 3},
+    {"color": "#D99412", "markersize": 4, "zorder": 5},
+    {"color": "#23232A", "markersize": 6.5, "zorder": 4},
 ]
 
 
@@ -106,6 +113,33 @@ def _zoom_limit(margins: pd.Series) -> float:
     return min(100.0, math.ceil(limit / step) * step)
 
 
+def _place_corner_legend(axis: Axes, legend: Legend) -> None:
+    """Use a clear lower corner, adding bottom space only when both are occupied."""
+    axis.figure.draw_without_rendering()
+    pixels_per_point = axis.figure.dpi / 72
+    obstacles = []
+    for line in axis.lines:
+        radius = (line.get_markersize() + line.get_markeredgewidth()) * pixels_per_point / 2
+        for x, y in axis.transData.transform(line.get_xydata()):
+            obstacles.append(Bbox.from_extents(x - radius, y - radius, x + radius, y + radius))
+    for collection in axis.collections:
+        for segment in collection.get_segments():
+            bounds = Bbox.null()
+            bounds.update_from_data_xy(axis.transData.transform(segment))
+            obstacles.append(bounds)
+
+    for location in ("lower left", "lower right"):
+        legend.set_loc(location)
+        box = legend.get_window_extent().padded(pixels_per_point)
+        if not any(box.overlaps(obstacle) for obstacle in obstacles):
+            return
+
+    bottom, top = axis.get_ylim()
+    legend_space = box.ymax - axis.bbox.ymin
+    extra = (bottom - top) * legend_space / (axis.bbox.height - legend_space)
+    axis.set_ylim(bottom + extra, top)
+
+
 def plot_margins(
     votes: pd.DataFrame, *, output: Path, title: str | None = None
 ) -> tuple[Path, Path]:
@@ -127,15 +161,14 @@ def plot_margins(
         is_zoom = destination == zoom_output
         figure, axis = plt.subplots(
             figsize=(6.0, max(3.2, 1.35 + len(rows) * 0.24)), layout="constrained",
+            facecolor="white",
         )
         try:
-            axis.spines[["top", "right"]].set_visible(False)
-            axis.axvline(0, color="#292929", linewidth=1.0, zorder=2)
-            if is_zoom:
-                axis.axvspan(-zoom_pp, 0, color="#FBF1EE", zorder=0)
-                axis.axvspan(0, zoom_pp, color="#EAF2FA", zorder=0)
-            else:
-                axis.hlines(rows, ranges["min"], ranges["max"], color="#C8C8C8", linewidth=1.6)
+            axis.set_facecolor("white")
+            axis.grid(False, which="both")
+            axis.spines[:].set_visible(True)
+            axis.vlines(0, -0.5, len(rows) - 0.5, color="#555555", linewidth=0.8, zorder=2)
+            axis.hlines(rows, ranges["min"], ranges["max"], color="#C8C8C8", linewidth=1.6)
             axis.set_xlabel("Margin, Democratic minus Republican (percentage points)")
             axis.set_ylabel("District number")
             axis.set_xlim(*limits)
@@ -152,23 +185,29 @@ def plot_margins(
                 margins = group.set_index("district").loc[districts, "margin_pp"]
                 visible = margins.between(*limits).to_numpy()
                 axis.plot(
-                    margins[visible], rows[visible], linestyle="none", label=plan,
+                    margins[visible], rows[visible], linestyle="none", marker="o", label=plan,
+                    markeredgecolor="#303030", markeredgewidth=0.4,
                     **official_plan_style(plan, **style),
                 )
 
             if title and not paper_mode_enabled():
                 figure.suptitle(title)
-            if paper_mode_enabled():
-                heading = (
-                    f"Margins within ±{zoom_pp:g} percentage points" if is_zoom else "Full range"
-                )
-                set_panel_title(axis, heading)
             handles, labels = axis.get_legend_handles_labels()
-            figure_legend(
-                axis, handles, labels, loc="upper center", bbox_to_anchor=(0.5, -0.16),
-                ncol=len(PLAN_STYLES), frameon=False, title=OFFICIAL_PLANS_TITLE,
+            legend = figure_legend(
+                axis, handles, labels, loc="lower left", alignment="left",
+                title=OFFICIAL_PLANS_TITLE, framealpha=1, facecolor="white", edgecolor="#808892",
+                fancybox=False, borderaxespad=0.45, borderpad=0.3, labelspacing=0.25,
+                handlelength=1.1, handletextpad=0.45,
             )
-            save_figure(figure, destination, bbox_inches="tight")
+            for label in legend.get_texts():
+                label.set_text(PLAN_LEGEND_LABELS.get(label.get_text(), label.get_text()))
+            legend.set_frame_on(True)
+            legend.get_frame().set_linewidth(0.55)
+            _place_corner_legend(axis, legend)
+            save_figure(
+                figure, destination, facecolor="white", bbox_inches="tight",
+                preserve_legend_frames=True,
+            )
         finally:
             plt.close(figure)
     return output, zoom_output
