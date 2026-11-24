@@ -491,11 +491,11 @@ For a clearer public-plan comparison, `vote-comparison-adjusted` also writes
 `workflow.vote-comparison-adjusted.overlay_public_plans = true`. This figure
 uses the same election as the vote comparison (2020 presidential by default).
 Districts are sorted within each plan from most Republican to most Democratic.
-Each box summarizes the submitted plans at that rank: the box spans the middle
-50%, the line marks the median, and whiskers span the full range. The three
-official plans are overlaid with distinct colors, line styles, and marker
-shapes; they do not contribute to the boxes. A dashed line marks the 50% winning
-threshold. Set `outputs.public_vote_comparison` to choose another output path.
+Each box spans the middle 50% of submitted plans at that rank. The line marks
+the median, the dot marks the mean, and the whiskers span the full range. The
+three official plans appear as overlays with distinct colors and marker shapes.
+A horizontal line marks the 50% winning threshold. Set
+`outputs.public_vote_comparison` to choose another output path.
 
 To pair the zoomed CEAH plot with the public-plan ordered vote-share figure,
 configure `figure-compositor` with `responsiveness/ceah-zoom.pdf` and
