@@ -45,22 +45,30 @@ def test_summary_preserves_close_wins_and_all_vote_denominator(district_votes):
 
 
 def test_zoom_preserves_district_rows_and_margins(tmp_path, monkeypatch, district_votes):
-    def check_alignment(figure, output, **kwargs):
-        overview, zoom = figure.axes
-        figure.canvas.draw()
-        main_markers = [line for line in overview.lines if line.get_linestyle() == "None"]
-        zoom_markers = [line for line in zoom.lines if line.get_linestyle() == "None"]
-        assert len(main_markers) == len(zoom_markers) == 3
-        for main, detail in zip(main_markers, zoom_markers, strict=True):
-            visible = abs(main.get_xdata()) <= 5
-            assert detail.get_xdata() == pytest.approx(main.get_xdata()[visible])
-            main_y = overview.transData.transform(main.get_xydata()[visible])[:, 1]
-            detail_y = zoom.transData.transform(detail.get_xydata())[:, 1]
-            assert detail_y == pytest.approx(main_y)
+    panels = {}
+
+    def capture_panel(figure, output, **kwargs):
+        (axis,) = figure.axes
+        panels[output] = axis
         return output
 
-    monkeypatch.setattr(partisan_asymmetry, "save_figure", check_alignment)
-    partisan_asymmetry.plot_margins(district_votes, close_pp=5, output=tmp_path / "figure.pdf")
+    monkeypatch.setattr(partisan_asymmetry, "save_figure", capture_panel)
+    full_pdf, zoom_pdf = partisan_asymmetry.plot_margins(
+        district_votes, output=tmp_path / "figure.pdf"
+    )
+
+    assert (full_pdf, zoom_pdf) == (tmp_path / "figure.pdf", tmp_path / "figure-zoom.pdf")
+    overview, zoom = panels[full_pdf], panels[zoom_pdf]
+    assert zoom.get_xlim() == (-20, 20)
+    assert zoom.get_ylim() == overview.get_ylim() == (3.5, -0.5)
+    assert [tick.get_text() for tick in zoom.get_yticklabels()] == ["1", "2", "3", "4"]
+    main_markers = [line for line in overview.lines if line.get_linestyle() == "None"]
+    zoom_markers = [line for line in zoom.lines if line.get_linestyle() == "None"]
+    assert len(main_markers) == len(zoom_markers) == 3
+    for main, detail in zip(main_markers, zoom_markers, strict=True):
+        visible = abs(main.get_xdata()) <= 20
+        assert detail.get_xdata() == pytest.approx(main.get_xdata()[visible])
+        assert detail.get_ydata() == pytest.approx(main.get_ydata()[visible])
 
 
 def test_recast_preserves_split_precinct_pieces_and_audits_missing_blocks(tmp_path):

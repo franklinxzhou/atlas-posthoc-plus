@@ -99,68 +99,86 @@ def summarize_margins(votes: pd.DataFrame, close_pp: float) -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
+def _zoom_limit(margins: pd.Series) -> float:
+    """Round up the 75th percentile of absolute margins to a readable bound."""
+    limit = max(1.0, float(margins.abs().quantile(0.75)))
+    step = 0.5 * 10 ** math.floor(math.log10(limit))
+    return min(100.0, math.ceil(limit / step) * step)
+
+
 def plot_margins(
-    votes: pd.DataFrame, *, close_pp: float, output: Path, title: str | None = None
-) -> Path:
+    votes: pd.DataFrame, *, output: Path, title: str | None = None
+) -> tuple[Path, Path]:
     apply_paper_style()
+    output = output.with_suffix(".pdf")
+    zoom_output = output.with_stem(f"{output.stem}-zoom")
     districts = sorted(votes["district"].unique())
     rows = np.arange(len(districts))
-    figure, (overview, zoom) = plt.subplots(
-        1, 2, sharey=True, figsize=(9.8, max(3.6, 2.0 + len(districts) * 0.27)),
-        gridspec_kw={"width_ratios": [1.5, 1]},
+    ranges = votes.groupby("district")["margin_pp"].agg(["min", "max"]).loc[districts]
+    zoom_pp = _zoom_limit(votes["margin_pp"])
+    low = min(-zoom_pp, ranges["min"].min())
+    high = max(zoom_pp, ranges["max"].max())
+    padding = (high - low) * 0.05
+    panels = (
+        (output, (low - padding, high + padding)),
+        (zoom_output, (-zoom_pp, zoom_pp)),
     )
-    try:
-        figure.subplots_adjust(left=0.08, right=0.98, bottom=0.19, top=0.85, wspace=0.13)
-        ranges = votes.groupby("district")["margin_pp"].agg(["min", "max"]).loc[districts]
-        overview.hlines(rows, ranges["min"], ranges["max"], color="#C8C8C8", linewidth=1.6)
-        zoom.axvspan(-close_pp, 0, color="#FBF1EE", zorder=0)
-        zoom.axvspan(0, close_pp, color="#EAF2FA", zorder=0)
-        for axis in (overview, zoom):
-            axis.set_axisbelow(True)
-            axis.axvline(0, color="#292929", linewidth=1.0, zorder=2)
-            axis.set_xlabel("Margin, Democratic minus Republican (percentage points)")
-            axis.xaxis.set_major_locator(MaxNLocator(nbins=6, symmetric=axis is zoom))
+    for destination, limits in panels:
+        is_zoom = destination == zoom_output
+        figure, axis = plt.subplots(
+            figsize=(6.0, max(3.2, 1.35 + len(rows) * 0.24)), layout="constrained",
+        )
+        try:
             axis.spines[["top", "right"]].set_visible(False)
+            axis.axvline(0, color="#292929", linewidth=1.0, zorder=2)
+            if is_zoom:
+                axis.axvspan(-zoom_pp, 0, color="#FBF1EE", zorder=0)
+                axis.axvspan(0, zoom_pp, color="#EAF2FA", zorder=0)
+            else:
+                axis.hlines(rows, ranges["min"], ranges["max"], color="#C8C8C8", linewidth=1.6)
+            axis.set_xlabel("Margin, Democratic minus Republican (percentage points)")
+            axis.set_ylabel("District number")
+            axis.set_xlim(*limits)
+            axis.set_yticks(rows, labels=districts)
+            axis.set_ylim(len(rows) - 0.5, -0.5)
+            axis.xaxis.set_major_locator(
+                MaxNLocator(nbins=6, symmetric=is_zoom, steps=[1, 2, 2.5, 5, 10])
+            )
             axis.tick_params(axis="y", length=0)
 
-        for (plan, group), style in zip(votes.groupby("plan", sort=False), PLAN_STYLES, strict=True):
-            style = official_plan_style(plan, **style)
-            margins = group.set_index("district").loc[districts, "margin_pp"]
-            overview.plot(margins, rows, linestyle="none", label=plan, **style)
-            near = margins.abs().le(close_pp).to_numpy()
-            zoom.plot(margins[near], rows[near], linestyle="none", **style)
+            for (plan, group), style in zip(
+                votes.groupby("plan", sort=False), PLAN_STYLES, strict=True
+            ):
+                margins = group.set_index("district").loc[districts, "margin_pp"]
+                visible = margins.between(*limits).to_numpy()
+                axis.plot(
+                    margins[visible], rows[visible], linestyle="none", label=plan,
+                    **official_plan_style(plan, **style),
+                )
 
-        overview.set_yticks(rows, labels=districts)
-        overview.set_ylim(len(rows) - 0.5, -0.5)
-        overview.set_ylabel("District number")
-        low = min(-close_pp, ranges["min"].min())
-        high = max(close_pp, ranges["max"].max())
-        padding = (high - low) * 0.05
-        overview.set_xlim(low - padding, high + padding)
-        zoom.set_xlim(-close_pp, close_pp)
-        if title:
-            figure.suptitle(title, x=0.08, ha="left", fontsize=13)
-        legend_placement = {"loc": "lower center"}
-        if paper_mode_enabled():
-            set_panel_title(overview, "Full range")
-            set_panel_title(zoom, f"Margins within ±{close_pp:g} percentage points")
-            legend_placement = {
-                "loc": "upper center", "bbox_to_anchor": (0.5, 0.06), "title": OFFICIAL_PLANS_TITLE,
-            }
-        handles, labels = overview.get_legend_handles_labels()
-        figure_legend(
-            figure, handles, labels, ncol=len(PLAN_STYLES), frameon=False, **legend_placement,
-        )
-        return save_figure(figure, output, dpi=190, bbox_inches="tight")
-    finally:
-        plt.close(figure)
+            if title and not paper_mode_enabled():
+                figure.suptitle(title)
+            if paper_mode_enabled():
+                heading = (
+                    f"Margins within ±{zoom_pp:g} percentage points" if is_zoom else "Full range"
+                )
+                set_panel_title(axis, heading)
+            handles, labels = axis.get_legend_handles_labels()
+            figure_legend(
+                axis, handles, labels, loc="upper center", bbox_to_anchor=(0.5, -0.16),
+                ncol=len(PLAN_STYLES), frameon=False, title=OFFICIAL_PLANS_TITLE,
+            )
+            save_figure(figure, destination, bbox_inches="tight")
+        finally:
+            plt.close(figure)
+    return output, zoom_output
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--district-votes", required=True, type=Path)
-    parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--close-pp", type=float, default=5, help="Zoom and close-win threshold")
+    parser.add_argument("--output", required=True, type=Path, help="Full-range PDF path")
+    parser.add_argument("--close-pp", type=float, default=5, help="Close-win summary threshold")
     parser.add_argument("--title")
     args = parser.parse_args()
     if not math.isfinite(args.close_pp) or not 0 < args.close_pp <= 100:
@@ -170,10 +188,11 @@ def main() -> None:
     except ValueError as error:
         parser.error(str(error))
     summary = summarize_margins(votes, args.close_pp)
-    destination = plot_margins(votes, close_pp=args.close_pp, output=args.output, title=args.title)
+    destination, zoom = plot_margins(votes, output=args.output, title=args.title)
     summary_path = destination.with_name(f"{destination.stem}-summary.csv")
     summary.to_csv(summary_path, index=False)
     print(f"Wrote {destination}")
+    print(f"Wrote {zoom}")
     print(f"Wrote {summary_path}")
 
 

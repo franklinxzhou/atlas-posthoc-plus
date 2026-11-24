@@ -399,8 +399,8 @@ atlas-posthoc-plus suite full --keep-going
 ## Partisan asymmetry across three plans
 
 `partisan-asymmetry` compares district margins for the same election across
-three plans. Paper mode writes a vector PDF with the full range in panel (a)
-and the near-zero zoom in panel (b).
+three plans. It writes two vector PDFs, the full range at
+`outputs.partisan_asymmetry` and a separate `-zoom.pdf` beside it.
 
 ```bash
 aph-plus --config election.toml --paper-mode run partisan-asymmetry
@@ -416,11 +416,13 @@ The figure uses `100 * (dem_votes - rep_votes) / total_votes`, with minor-party
 and write-in votes included in `total_votes`. Seat counts compare the two
 major parties, and exact ties are counted separately. The full view connects estimates
 with the same district number, which can cover different territory across plans.
-The zoom shares the district rows of the full view and uses nested marker sizes
-to show coincident margins. Set `workflow.partisan-asymmetry.close_pp`
-to choose the zoom and close-win threshold (default 5 percentage points). The
-companion `-summary.csv` reports each party's seat count and the count and share
-of those wins within the threshold. Their difference is the Democratic
+Both panels use the same district rows. The zoom is centered on zero and
+rounds the 75th percentile
+of absolute margins outward to a readable limit. Set
+`workflow.partisan-asymmetry.close_pp` to choose the close-win threshold
+(default 5 percentage points). The companion `-summary.csv` reports each
+party's seat count and the count and share of those wins within the threshold.
+Their difference is the Democratic
 close-win share minus the Republican close-win share, in percentage points.
 The summary also gives each party's closest win and the signed margin at the
 majority cutoff, after ordering districts from most to least Democratic.
