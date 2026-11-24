@@ -1104,7 +1104,6 @@ def plot_one_rank(
     for ax in axes:
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
-        ax.grid(axis="y", alpha=0.25)
 
     if paper_mode_enabled():
         set_panel_title(axes[0], rank_label)

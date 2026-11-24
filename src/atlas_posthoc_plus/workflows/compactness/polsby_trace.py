@@ -256,7 +256,6 @@ def plot_trace_with_references(
         pad = max(0.01, 0.08 * (hi - lo))
         ax.set_ylim(max(0.0, lo - pad), min(1.0, hi + pad))
 
-    ax.grid(alpha=0.25)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 

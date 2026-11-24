@@ -156,7 +156,6 @@ def plot_outside_population_marginals(
     ax.set_yticklabels([item.label for item in series])
     ax.set_xlabel(metric_label)
     fig.suptitle(title, fontsize=18, y=0.98)
-    ax.grid(True, axis="x", alpha=0.25)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.spines["left"].set_visible(False)

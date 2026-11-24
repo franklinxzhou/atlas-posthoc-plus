@@ -19,6 +19,34 @@ from atlas_posthoc_plus.registry import WorkflowSpec
 from atlas_posthoc_plus.runner import _subprocess_environment, prepare_workflow
 
 
+@pytest.mark.parametrize("paper_mode", ["0", "1"])
+def test_save_figure_disables_major_and_minor_grids(tmp_path, monkeypatch, paper_mode):
+    monkeypatch.setenv(PAPER_MODE_ENV, paper_mode)
+    with mpl.rc_context({"axes.grid": True, "axes.grid.which": "both"}):
+        figure, axis = plt.subplots()
+        try:
+            twin = axis.twinx()
+            reference = axis.axhline(0.5)
+            for panel in (axis, twin):
+                panel.minorticks_on()
+            gridlines = [
+                tick.gridline
+                for panel in (axis, twin)
+                for dimension in (panel.xaxis, panel.yaxis)
+                for tick in dimension.get_major_ticks() + dimension.get_minor_ticks()
+            ]
+            assert gridlines and all(line.get_visible() for line in gridlines)
+
+            output = save_figure(figure, tmp_path / "figure.png", dpi=72)
+
+            assert output.is_file()
+            assert all(not line.get_visible() for line in gridlines)
+            assert reference.get_visible()
+            assert mpl.rcParams["axes.grid"]
+        finally:
+            plt.close(figure)
+
+
 def test_paper_mode_saves_pdf_without_titles_and_adds_panel_labels(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

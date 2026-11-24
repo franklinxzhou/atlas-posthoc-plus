@@ -970,7 +970,6 @@ def plot(ensemble, official, races, output, title, n_districts):
     ax.set_ylabel("Statewide two-party Democratic vote share")
     ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
     ax.set_title(title)
-    ax.grid(axis="both", alpha=0.20)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 

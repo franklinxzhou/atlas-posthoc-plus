@@ -273,9 +273,15 @@ def save_figure(
     output: str | Path,
     **kwargs: Any,
 ) -> Path:
-    """Save a figure, applying manuscript conventions when paper mode is active."""
+    """Save a grid-free figure, applying manuscript conventions in paper mode."""
+    from matplotlib.axes import Axes
+
     destination = paper_output_path(output)
     destination.parent.mkdir(parents=True, exist_ok=True)
+
+    # Upstream plotting helpers and Matplotlib styles can also enable grids.
+    for axis in figure.findobj(match=Axes):
+        axis.grid(False, which="both")
 
     if paper_mode_enabled():
         import matplotlib as mpl

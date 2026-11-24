@@ -645,7 +645,6 @@ def plot_cut_edge_histogram(
     ax.set_title(title)
     ax.set_xlabel("Number of precinct-adjacency edges crossing district boundaries")
     ax.set_ylabel("Count of compliant ensemble plans")
-    ax.grid(axis="y", alpha=0.25)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     figure_legend(

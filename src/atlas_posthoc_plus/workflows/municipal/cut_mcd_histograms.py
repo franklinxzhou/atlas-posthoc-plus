@@ -114,7 +114,6 @@ def plot_cut_mcd_histograms(
     ax.set_xlabel(f"Number of cut {municipality_name_for_traces(traces)}s")
     ax.set_ylabel("Share of plans" if density else "Count")
     fig.suptitle(title, fontsize=18, y=0.98)
-    ax.grid(True, axis="y", alpha=0.25)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
