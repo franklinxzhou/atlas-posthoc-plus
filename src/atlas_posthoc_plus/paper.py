@@ -11,7 +11,7 @@ PANEL_TITLE_GID = "atlas-posthoc-plus-panel-title"
 DATA_LABEL_GID = "atlas-posthoc-plus-data-label"
 
 PAPER_FONT_FAMILY = "sans-serif"
-PAPER_SANS_SERIF = ("Nimbus Sans", "DejaVu Sans")
+PAPER_SANS_SERIF = ("Nimbus Sans", "Liberation Sans", "Arial", "DejaVu Sans")
 PAPER_LABEL_SIZE = 10
 PAPER_LEGEND_SIZE = 9
 PAPER_TICK_SIZE = 8

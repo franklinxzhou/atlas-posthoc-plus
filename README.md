@@ -129,9 +129,9 @@ atlas-posthoc-plus --no-paper-mode suite standard
 ```
 
 Paper mode writes vector PDFs with embedded TrueType text, even when a
-configured output ends in `.png`. It uses Helvetica Neue with Helvetica,
-Arial, and DejaVu Sans fallbacks. Axis labels and panel headings use 10 pt,
-frameless legends use 9 pt, ticks and annotations use 8 pt, and bold panel
+configured output ends in `.png`. Its font preference is Nimbus Sans,
+Liberation Sans, Arial, then DejaVu Sans. Axis labels and panel headings use
+10 pt, frameless legends use 9 pt, ticks and annotations use 8 pt, and bold panel
 letters use 11 pt. Numbers printed inside data markers can use 6 pt.
 
 Paper mode removes descriptive plot titles and keeps headings that identify
