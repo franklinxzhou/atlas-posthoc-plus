@@ -15,16 +15,54 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import Patch
-from matplotlib.ticker import PercentFormatter
 import numpy as np
 import pandas as pd
+from matplotlib.patches import Patch
+from matplotlib.ticker import PercentFormatter
 
-from atlas_posthoc_plus.paper import figure_legend, official_plan_style, save_figure
-from atlas_posthoc_plus.workflows.elections.responsiveness_zoom import (
-    PLAN_STYLES,
-    apply_figure_style,
+from atlas_posthoc_plus.paper import (
+    OFFICIAL_PLAN_STYLES,
+    apply_paper_style,
+    figure_legend,
+    official_plan_style,
+    save_figure,
 )
+
+PLAN_STYLES = {
+    label: {"color": style["color"], "marker": style["marker"]}
+    for label, style in OFFICIAL_PLAN_STYLES.items()
+}
+
+
+def _apply_figure_style() -> None:
+    """Apply the role-mapped publication style used by this workflow."""
+    plt.rcParams.update(
+        {
+            "font.family": "sans-serif",
+            "font.size": 9,
+            "axes.labelsize": 9,
+            "axes.titlesize": 9,
+            "legend.fontsize": 8,
+            "xtick.labelsize": 7,
+            "ytick.labelsize": 7,
+            "axes.linewidth": 0.7,
+            "axes.spines.top": False,
+            "axes.spines.right": False,
+            "axes.titlelocation": "left",
+            "axes.titleweight": "normal",
+            "xtick.direction": "out",
+            "ytick.direction": "out",
+            "xtick.major.size": 3,
+            "ytick.major.size": 3,
+            "legend.frameon": False,
+            "figure.dpi": 200,
+            "savefig.dpi": 300,
+            "savefig.bbox": "tight",
+            "pdf.fonttype": 42,
+            "ps.fonttype": 42,
+        }
+    )
+    apply_paper_style()
 
 
 def _vote_matrix(rows: pd.DataFrame, n_districts: int) -> pd.DataFrame:
@@ -78,7 +116,7 @@ def plot_public_plan_comparison(
         officials[label] = _vote_matrix(rows, n_districts).iloc[0].to_numpy(float)
 
     with plt.rc_context():
-        apply_figure_style()
+        _apply_figure_style()
         fig, ax = plt.subplots(figsize=(8.4, 5.2))
         x = np.arange(1, n_districts + 1)
         face, edge = "#dce4e8", "#667680"

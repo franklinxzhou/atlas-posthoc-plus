@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-atlas-posthoc-plus run responsiveness \
+atlas-posthoc-plus run ceah \
   --graph-json data/graph/OHpct20.json \
   --target-precincts data/derived/pctSF_OH/pctSF_OH.shp \
   --target-key-col NAME \
@@ -37,37 +37,28 @@ from pathlib import Path
 from time import perf_counter
 from typing import Iterable
 
-from atlas_posthoc_plus import __version__
-from atlas_posthoc_plus.paper import figure_legend, official_plan_styles, save_figure
-
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
-from matplotlib.ticker import PercentFormatter
 import numpy as np
 import pandas as pd
 
+from atlas_posthoc_plus import __version__
 from atlas_posthoc_plus.io.atlas_records import ParseSummary, iter_map_records
 from atlas_posthoc_plus.io.chain_sweep import (
     DenseDistricting,
     audited_sweep_size,
-    county_split_sizes,
     configured_sweep,
+    county_split_sizes,
     iter_sweep_records,
 )
-
+from atlas_posthoc_plus.workflows.elections.ceah_plot import (
+    PLAN_COLORS,
+    render_ceah,
+)
 from atlas_posthoc_plus.workflows.elections.responsiveness_cache import (
     cached_allocation,
     input_signatures,
 )
 from atlas_posthoc_plus.workflows.elections.responsiveness_progress import Progress
 
-PLAN_STYLES = {
-    "Enacted ('25)": {"color": "#9467bd", "marker": "o"},
-    "Overturned ('21)": {"color": "#2ca02c", "marker": "o"},
-    "Remedial ('22)": {"color": "#d62728", "marker": "o"},
-}
 PUBLIC_SOURCE = "Public submitted plans"
 
 RACE_MANIFEST = {
@@ -736,7 +727,7 @@ def load_publics(
         if number % 25 == 0:
             progress.log(f"Loaded {number:,}/{len(paths):,} public plans")
 
-    progress.log(f"Public plans accepted for responsiveness: {len(out)} / {len(paths)}")
+    progress.log(f"Public plans accepted for CEAH: {len(out)} / {len(paths)}")
     return out, pd.DataFrame(manifest_rows)
 
 def race_abbrev(race_id):
@@ -851,147 +842,25 @@ def evaluate(assignments, officials, votes, races, *, progress, n_districts,
     return frame(ensemble, ens_counts), frame(refs, ref_counts), race_summary
 
 
-def plot(ensemble, official, races, output, title, n_districts):
-    """
-    NC-style horizontal histograms.
-
-    Each statewide race is drawn at its statewide Democratic vote share.
-    The ensemble is a small histogram over Democratic-won district counts.
-    The official plans are overlaid as colored circular dots.
-    """
-    races = races.copy()
+def plot_races(races):
+    races = races.loc[np.isfinite(races["statewide_dem_share"])]
+    races = races.sort_values(["statewide_dem_share", "year", "race_id"])
     if "abbr" not in races.columns:
-        races["abbr"] = races["race_id"].map(race_abbrev)
+        races = races.assign(abbr=races["race_id"].map(race_abbrev))
+    return races
 
-    races = races.sort_values(["statewide_dem_share", "year", "race_id"]).reset_index(drop=True)
-    fig_height = max(7.2, 0.34 * len(races) + 2.5)
-    fig, ax = plt.subplots(figsize=(11.8, fig_height))
 
-    yvals = races["statewide_dem_share"].dropna().to_numpy(float)
-    if len(yvals) > 1:
-        gaps = np.diff(np.sort(np.unique(yvals)))
-        gaps = gaps[gaps > 1e-9]
-        if len(gaps):
-            ridge_height = min(0.008, max(0.0022, 0.35 * np.percentile(gaps, 25)))
-        else:
-            ridge_height = 0.004
-    else:
-        ridge_height = 0.004
-    ridge_height = max(ridge_height, 0.0028)
-
-    hist_face = "#b9d7e8"
-    hist_edge = "#34495e"
-    plan_offsets = {"Enacted ('25)": -0.08, "Overturned ('21)": 0.00, "Remedial ('22)": 0.08}
-
-    for _, race in races.iterrows():
-        race_id = race["race_id"]
-        y = float(race["statewide_dem_share"])
-        sub = ensemble[ensemble["race_id"] == race_id]
-        if sub.empty:
-            continue
-
-        counts = sub["dem_seats"].value_counts().reindex(range(0, n_districts + 1), fill_value=0).sort_index()
-        fractions = counts / max(counts.sum(), 1)
-        max_fraction = float(fractions.max()) if len(fractions) else 0.0
-        if max_fraction <= 0:
-            continue
-        heights = fractions / max_fraction * ridge_height
-
-        ax.hlines(y, xmin=-0.15, xmax=n_districts + 0.35, color="black", linewidth=0.45, alpha=0.55, zorder=1)
-
-        for seats, h in heights.items():
-            if h <= 0:
-                continue
-            ax.bar(
-                seats,
-                h,
-                width=0.78,
-                bottom=y,
-                align="center",
-                color=hist_face,
-                edgecolor=hist_edge,
-                linewidth=0.7,
-                alpha=0.88,
-                zorder=2,
-            )
-
-        off = official[official["race_id"] == race_id]
-        for plan_label, style in official_plan_styles(PLAN_STYLES):
-            row = off[off["source"] == plan_label]
-            if row.empty:
-                continue
-            x = float(row["dem_seats"].iloc[0]) + plan_offsets.get(plan_label, 0.0)
-            ax.scatter(
-                x,
-                y,
-                s=72,
-                marker="o",
-                color=style["color"],
-                edgecolor="black",
-                linewidth=0.55,
-                zorder=5,
-            )
-
-        ax.text(n_districts + 0.48, y + 0.08 * ridge_height, race["abbr"], fontsize=9.5, va="center", ha="left")
-
-    ymin = max(0.0, float(races["statewide_dem_share"].min()) - 0.012)
-    ymax = min(1.0, float(races["statewide_dem_share"].max()) + 0.014)
-
-    # Proportionality reference: seats = statewide two-party Democratic share * number of districts.
-    yline = np.linspace(ymin, ymax, 100)
-    ax.plot(n_districts * yline, yline, color="black", linestyle=(0, (7, 5)), linewidth=2.0, alpha=0.85, zorder=0)
-
-    key_lines = [
-        "PR - President",
-        "USS - U.S. Senate",
-        "GOV - Governor",
-        "ATG - Attorney General",
-        "AUD - Auditor",
-        "SOS - Secretary of State",
-        "TRE - Treasurer",
-        "CJU - Chief Justice",
-        "SC - Supreme Court",
-    ]
-    ax.text(
-        0.985,
-        0.02,
-        "\n".join(key_lines),
-        transform=ax.transAxes,
-        ha="right",
-        va="bottom",
-        fontsize=8.2,
-        bbox={"boxstyle": "square,pad=0.35", "facecolor": "white", "edgecolor": "0.45", "alpha": 0.92},
-    )
-
-    ax.set_xlim(-0.4, n_districts + 2.6)
-    ax.set_ylim(ymin, ymax)
-    ax.set_xticks(range(0, n_districts + 1))
-    ax.set_xlabel("Number of Democratic-won congressional districts")
-    ax.set_ylabel("Statewide two-party Democratic vote share")
-    ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
-    ax.set_title(title)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-
-    handles = [
-        Line2D([0], [0], color=hist_edge, marker="s", linestyle="None", markerfacecolor=hist_face,
-               markeredgecolor=hist_edge, markersize=10, label="Compliant ensemble histogram"),
-    ]
-    for label, style in official_plan_styles(PLAN_STYLES):
-        handles.append(Line2D([0], [0], marker="o", linestyle="None", markerfacecolor=style["color"],
-                              markeredgecolor="black", markersize=8.5, label=label))
-    figure_legend(ax, handles=handles, loc="upper left", frameon=True)
-
-    fig.tight_layout()
-    output = Path(output)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output = save_figure(fig, output, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Wrote figure: {output}", flush=True)
+def plot(ensemble, official, races, output, title, n_districts):
+    races = plot_races(races)
+    destination = render_ceah(races, ensemble, official, Path(output), title, n_districts)
+    print(f"Wrote figure: {destination}", flush=True)
 
 
 def parse_args():
-    p = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    p = argparse.ArgumentParser(
+        description="Allocate statewide elections and draw a CEAH plot.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     p.add_argument("--graph-json", required=True)
     p.add_argument("--target-precincts", required=True, help="Geometry layer for OHpct20 graph nodes")
     p.add_argument("--target-key-col", default="NAME")
@@ -1026,7 +895,7 @@ def parse_args():
                    help="Reuse, rebuild, or bypass the shared election allocation cache")
     p.add_argument("--progress-interval", type=float, default=60.0, metavar="SECONDS",
                    help="Wall and CPU time heartbeat interval (0 disables heartbeats)")
-    p.add_argument("--title", default="Ohio congressional responsiveness across statewide elections")
+    p.add_argument("--title", default=None)
     return p.parse_args()
 
 def main():
@@ -1038,7 +907,7 @@ def main():
     outdir = Path(args.output_dir)
     outdir.mkdir(parents=True, exist_ok=True)
     output_plot = Path(args.output) if args.output else (
-        outdir / "ohio_responsiveness_all_statewide_races.png"
+        outdir / "ceah.png"
     )
     progress = Progress(args.progress_interval)
     with progress.stage(f"Reading graph {args.graph_json}"):
@@ -1103,7 +972,7 @@ def main():
 
     if ens.empty:
         raise RuntimeError("No ensemble assignments retained")
-    off = evaluated_refs[evaluated_refs["source"].isin(PLAN_STYLES)].copy()
+    off = evaluated_refs[evaluated_refs["source"].isin(PLAN_COLORS)].copy()
     with progress.stage("Writing ensemble, reference, and race summary CSVs"):
         ens.to_csv(outdir / "oh_responsiveness_ensemble_seats.csv", index=False)
         off.to_csv(outdir / "oh_responsiveness_official_plan_seats.csv", index=False)
@@ -1118,9 +987,9 @@ def main():
             progress.log(f"Wrote public-plan seats: {public_seats_output}")
         race_summary.to_csv(outdir / "oh_responsiveness_race_summary.csv", index=False)
 
-    with progress.stage("Generating responsiveness figure"):
+    with progress.stage("Generating CEAH plot"):
         plot(ens, off, race_summary, output_plot, args.title, args.n_districts)
-    progress.log(f"Completed responsiveness: {outdir}")
+    progress.log(f"Completed CEAH: {outdir}")
 
 
 if __name__ == "__main__":

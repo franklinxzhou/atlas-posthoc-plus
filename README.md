@@ -55,6 +55,7 @@ src/
         ├── demographics/
         │   └── ranked_vote_cvap.py
         ├── elections/
+        │   ├── ceah_plot.py
         │   ├── responsiveness.py
         │   └── responsiveness_zoom.py
         └── external/
@@ -131,12 +132,13 @@ atlas-posthoc-plus --no-paper-mode suite standard
 Paper mode writes vector PDFs with embedded TrueType text, even when a
 configured output ends in `.png`. Its font preference is Nimbus Sans,
 Liberation Sans, Arial, then DejaVu Sans. Axis labels and panel headings use
-10 pt, frameless legends use 9 pt, ticks and annotations use 8 pt, and bold panel
+10 pt, legends use 9 pt, ticks and annotations use 8 pt, and bold panel
 letters use 11 pt. Numbers printed inside data markers can use 6 pt.
 
 Paper mode removes descriptive plot titles and keeps headings that identify
-panels, such as plan names and zoom ranges. All multi-panel layouts, including
-stacked panels, receive letters in panel order.
+panels, such as plan names and zoom ranges. Multi-panel layouts normally
+receive letters in panel order. CEAH plots use red outlines to link overview
+ranges to detail panels and keep a single boxed legend in the overview.
 
 Ohio official plans use the same names and visual encodings across workflows.
 Enacted ('25) is purple with a circle or solid line, Overturned ('21) is blue
@@ -306,9 +308,9 @@ figure = "outputs/polsby/polsby-histogram.pdf"
 
 [[workflow.figure-compositor.panels]]
 id = "B"
-workflow = "responsiveness"
+workflow = "ceah"
 config = "configs/baseline.toml"
-figure = "outputs/responsiveness/ohio_responsiveness_all_statewide_races.pdf"
+figure = "outputs/responsiveness/ceah.pdf"
 
 [[workflow.figure-compositor.panels]]
 id = "C"
@@ -368,13 +370,13 @@ atlas-posthoc-plus suite standard
 Available suites:
 
 - `standard`: vote comparison, compliant municipal analysis, district-rank
-  municipal plots, cut edges, Polsby-Popper, CVAP, and responsiveness.
+  municipal plots, cut edges, Polsby-Popper, CVAP, and the CEAH plot.
 - `municipal`: derived municipal histograms, distributions, tradeoff,
   multi-ensemble marginal plots, public-plan comparison, and Place/city
   partisanship diagnostics.
 - `external`: inspect and summarize the optional outside ensemble.
 - `full`: `standard`, both compactness histograms, `municipal`, the zoomed
-  responsiveness figure, and `partisan-asymmetry` when district votes are configured.
+  CEAH plot with zoom, and `partisan-asymmetry` when district votes are configured.
 
 Each non-dry suite writes `suite-<name>-manifest.json` under `outputs.root`. The
 manifest records every command, return code, run time, configuration path, and
@@ -471,20 +473,18 @@ The configured suites connect multi-stage analyses automatically:
   public-plan scores when the plan directory, graph, and crosswalk are configured.
 - `reock-histogram` uses the shared chain sweep and the polygon layer for the
   graph nodes. It can score reference plans from the configured block assignments.
-- `responsiveness` creates the CSV files used by `responsiveness-zoom`. To add
-  public plans to the zoomed figure, set
-  `workflow.responsiveness.overlay_public_plans = true`. The upstream workflow
-  then creates `responsiveness/oh_responsiveness_public_plan_seats.csv`. The
-  zoom workflow reads it and writes two separate overview-plus-zoom source figures:
-  the existing `responsiveness/responsiveness-zoom.png` ensemble figure and a
-  companion `responsiveness/responsiveness-zoom-public-plans.png` public-plan
-  figure. Public plans with the same election and integer Democratic seat
-  count are collapsed into one constant-size muted tile; exact counts are
-  labelled inside the tiles in the zoom axes (the compact overview suppresses
-  those labels). The public legend identifies a “Submitted-plan outcome” tile
-  and notes that zoom labels give the number of submitted plans. The seat
-  coordinate is never jittered or smoothed. Set
-  `outputs.responsiveness_public_zoom` to choose another public figure path.
+- `ceah` computes statewide election results and writes the overview to
+  `responsiveness/ceah.png`. `ceah-zoom` reads the saved CSVs and draws
+  the overview with linked vote-share detail panels in
+  `responsiveness/ceah-zoom.png`. Both use stepped histograms with a
+  separate peak normalization for each election and markers at integer
+  official-plan seat outcomes. Use `--paper-mode` for vector PDFs.
+- To include public submissions, set `workflow.ceah.overlay_public_plans = true`.
+  `ceah` then exports `responsiveness/oh_responsiveness_public_plan_seats.csv`,
+  and `ceah-zoom` uses it to render `responsiveness/ceah-zoom-public-plans.png`.
+  The companion uses stepped histograms of the submitted seat counts, with
+  each election scaled to its own peak. Set `outputs.ceah_public_zoom` to
+  change the path.
 
 For a clearer public-plan comparison, `vote-comparison-adjusted` also writes
 `vote-comparison-adjusted/oh_public_plans_ordered_vote_shares.png` when
@@ -497,13 +497,13 @@ official plans are overlaid with distinct colors, line styles, and marker
 shapes; they do not contribute to the boxes. A dashed line marks the 50% winning
 threshold. Set `outputs.public_vote_comparison` to choose another output path.
 
-The checked-in `figure-compositor` configuration combines the paper-mode PDF
-ensemble responsiveness figure as panel `(a)` with this public-plan ordered
-vote-share figure as panel `(b)` without rasterizing them, and writes
-`responsiveness/responsiveness-zoom-composite.pdf`:
+To pair the zoomed CEAH plot with the public-plan ordered vote-share figure,
+configure `figure-compositor` with `responsiveness/ceah-zoom.pdf` and
+`vote-comparison-adjusted/oh_public_plans_ordered_vote_shares.pdf` as the
+source figures. Generate both in paper mode to preserve vector output.
 
 ```bash
-atlas-posthoc-plus --paper-mode run responsiveness-zoom
+atlas-posthoc-plus --paper-mode run ceah-zoom
 atlas-posthoc-plus --paper-mode run vote-comparison-adjusted
 atlas-posthoc-plus doctor figure-compositor
 atlas-posthoc-plus run figure-compositor
@@ -523,31 +523,37 @@ or a probability of drawing a plan.
 
 Explicit paths in `[inputs]` override these generated defaults.
 
-#### Select races for responsiveness
+### CEAH plot
 
-Use the [race-selection runbook](docs/responsiveness.md) to find race IDs,
+Run `ceah` to compute results and draw the overview. Run `ceah-zoom` to reuse
+those results and add detail panels for elections with nearby statewide vote
+shares. The overview seat axis runs from zero through the number of districts.
+
+```bash
+atlas-posthoc-plus run ceah
+atlas-posthoc-plus run ceah-zoom
+```
+
+Use the [race-selection runbook](docs/ceah.md) to find race IDs,
 compare figures from existing CSVs, or compute just the races you need.
 
 ```bash
-atlas-posthoc-plus run responsiveness-zoom -- \
+atlas-posthoc-plus run ceah-zoom -- \
   --race-ids G20PRE G24USS --output outputs/responsiveness/selected-races.png
 ```
 
-The public-plan overlays for both vote comparison and responsiveness can be
-enabled together with:
+The same configuration can enable public submissions in vote comparison and CEAH.
 
 ```toml
 [workflow.vote-comparison-adjusted]
 overlay_public_plans = true
 
-[workflow.responsiveness]
+[workflow.ceah]
 overlay_public_plans = true
 ```
 
-For responsiveness, run `responsiveness` before `responsiveness-zoom` at least
-once after enabling the option so the public-plan seat-count CSV exists. The
-public figure's zoom labels give the number of submitted plans; these
-descriptive counts are not probabilities or densities.
+After enabling public submissions, run `ceah` once to produce the seat-count
+CSV before running `ceah-zoom`. The counts describe submitted plans.
 
 For `municipal-tradeoff-public`, sampled plans can be pooled into one visual
 series so the plot does not reveal which chain produced each point:
@@ -810,8 +816,8 @@ layer covering the manifest's metro areas.
 | `regional-african-american-cvap` | `workflows.demographics.regional_black_cvap` | District-level CUA/MSA African American-CVAP location quotients |
 | `partisan-asymmetry` | `workflows.elections.partisan_asymmetry` | Three-plan district margin comparison and near-zero zoom |
 | `recast-precinct-votes` | `workflows.elections.recast_precinct_votes` | Recast precinct returns on three maps with a source-map reconciliation |
-| `responsiveness` | `workflows.elections.responsiveness` | Multi-election responsiveness. [Race-selection runbook](docs/responsiveness.md) |
-| `responsiveness-zoom` | `workflows.elections.responsiveness_zoom` | Zoomed responsiveness panels. [Try race selections](docs/responsiveness.md#try-different-figures-from-existing-csvs) |
+| `ceah` | `workflows.elections.responsiveness` | CEAH overview and election CSVs. [Race-selection runbook](docs/ceah.md) |
+| `ceah-zoom` | `workflows.elections.responsiveness_zoom` | CEAH overview with linked detail panels. [Try race selections](docs/ceah.md#try-different-figures-from-existing-csvs) |
 | `municipal-histograms` | `workflows.municipal.histograms` | Pooled municipal histograms |
 | `municipal-distributions` | `workflows.municipal.distributions` | Chain-wise municipal distributions |
 | `municipal-tradeoff` | `workflows.municipal.tradeoff` | Cut/ousted-population tradeoff |

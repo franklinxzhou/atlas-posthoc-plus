@@ -135,7 +135,7 @@ def _parse_panels(config: ProjectConfig, section: Mapping[str, Any]) -> tuple[Pa
         )
 
     # Imported lazily to avoid a registry/config import cycle during CLI startup.
-    from atlas_posthoc_plus.registry import WORKFLOWS
+    from atlas_posthoc_plus.registry import WORKFLOW_ALIASES, WORKFLOWS
 
     panels: list[Panel] = []
     seen_ids: set[str] = set()
@@ -160,7 +160,7 @@ def _parse_panels(config: ProjectConfig, section: Mapping[str, Any]) -> tuple[Pa
             raise ConfigError(
                 f"configuration value {key + '.workflow'!r} is required"
             )
-        if workflow not in WORKFLOWS or workflow == "figure-compositor":
+        if WORKFLOW_ALIASES.get(workflow, workflow) not in WORKFLOWS or workflow == "figure-compositor":
             choices = ", ".join(
                 sorted(name for name in WORKFLOWS if name != "figure-compositor")
             )

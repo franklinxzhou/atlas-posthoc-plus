@@ -170,9 +170,9 @@ reuse_public_summary = true
 #
 # [[workflow.figure-compositor.panels]]
 # id = "B"
-# workflow = "responsiveness"
+# workflow = "ceah"
 # config = "configs/baseline.toml"
-# figure = "outputs/responsiveness/ohio_responsiveness_all_statewide_races.pdf"
+# figure = "outputs/responsiveness/ceah.pdf"
 #
 # [[workflow.figure-compositor.panels]]
 # id = "C"

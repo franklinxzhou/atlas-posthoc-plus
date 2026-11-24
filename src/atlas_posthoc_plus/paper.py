@@ -196,8 +196,9 @@ def _distinct_panel_axes(figure: Any) -> list[Any]:
     return panels
 
 
-def _style_legend(legend: Any) -> None:
-    legend.set_frame_on(False)
+def _style_legend(legend: Any, *, preserve_frame: bool = False) -> None:
+    if not preserve_frame:
+        legend.set_frame_on(False)
     entries = legend.get_texts()
     official_names = [_official_plan_name(text.get_text()) for text in entries]
     for text, name in zip(entries, official_names):
@@ -210,7 +211,9 @@ def _style_legend(legend: Any) -> None:
     title.set_fontsize(PAPER_LEGEND_SIZE)
 
 
-def _prepare_paper_figure(figure: Any) -> None:
+def _prepare_paper_figure(
+    figure: Any, *, panel_labels: bool = True, preserve_legend_frames: bool = False
+) -> None:
     from matplotlib.axes import Axes
     from matplotlib.legend import Legend
     from matplotlib.text import Annotation, Text
@@ -248,9 +251,9 @@ def _prepare_paper_figure(figure: Any) -> None:
         figure._suptitle.set_text("")
 
     for legend in figure.findobj(match=Legend):
-        _style_legend(legend)
+        _style_legend(legend, preserve_frame=preserve_legend_frames)
 
-    panels = _distinct_panel_axes(figure)
+    panels = _distinct_panel_axes(figure) if panel_labels else []
     if len(panels) > 1:
         for index, axis in enumerate(panels):
             label = axis.annotate(
@@ -271,6 +274,9 @@ def _prepare_paper_figure(figure: Any) -> None:
 def save_figure(
     figure: Any,
     output: str | Path,
+    *,
+    panel_labels: bool = True,
+    preserve_legend_frames: bool = False,
     **kwargs: Any,
 ) -> Path:
     """Save a grid-free figure, applying manuscript conventions in paper mode."""
@@ -287,7 +293,9 @@ def save_figure(
         import matplotlib as mpl
 
         with mpl.rc_context(PAPER_RC):
-            _prepare_paper_figure(figure)
+            _prepare_paper_figure(
+                figure, panel_labels=panel_labels, preserve_legend_frames=preserve_legend_frames
+            )
             kwargs.pop("format", None)
             kwargs.setdefault("bbox_inches", "tight")
             figure.savefig(destination, format="pdf", **kwargs)

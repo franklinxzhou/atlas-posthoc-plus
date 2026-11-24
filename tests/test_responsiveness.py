@@ -9,11 +9,13 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pytest
+from pypdf import PdfReader
 from shapely.geometry import box
 
 from atlas_posthoc_plus.io import chain_sweep
 from atlas_posthoc_plus.workflows.elections import responsiveness as resp
 from atlas_posthoc_plus.workflows.elections.responsiveness_cache import input_signatures
+from atlas_posthoc_plus.workflows.elections.responsiveness_zoom import build_chunks
 
 
 @pytest.fixture
@@ -341,24 +343,48 @@ race_ids = ["G24PRE"]
 """)
     cli = [sys.executable, "-m", "atlas_posthoc_plus.cli",
            "--config", str(config), "--paper-mode", "run"]
-    result = subprocess.run([*cli, "responsiveness"], text=True, capture_output=True, timeout=30)
+    result = subprocess.run([*cli, "ceah"], text=True, capture_output=True, timeout=30)
     assert result.returncode == 0, result.stderr
     out = root / "out" / "responsiveness"
     summary_path = out / "oh_responsiveness_race_summary.csv"
     assert pd.read_csv(summary_path)["race_id"].tolist() == ["G24PRE", "G24USS"]
-    assert (out / "ohio_responsiveness_all_statewide_races.pdf").stat().st_size > 0
+    overview = PdfReader(out / "ceah.pdf").pages[0].extract_text()
+    assert {"0", "15", "24PR", "24USS"} <= set(overview.split())
     official = pd.read_csv(out / "oh_responsiveness_official_plan_seats.csv")
-    assert set(official["source"]) == set(resp.PLAN_STYLES)
+    assert set(official["source"]) == set(resp.PLAN_COLORS)
     assert len(pd.read_csv(out / "oh_responsiveness_excluded_maps.csv")) == 2
 
     result = subprocess.run(
-        [*cli, "responsiveness-zoom", "--", "--race-ids", "G24USS",
+        [*cli, "ceah-zoom", "--", "--race-ids", "G24USS",
          "--output", str(out / "selected.png")], text=True, capture_output=True, timeout=30,
     )
     assert result.returncode == 0, result.stderr
-    assert "Loaded zoom inputs for 1 races" in result.stdout
-    assert (out / "selected.pdf").stat().st_size > 0
+    assert "Loaded CEAH inputs for 1 races" in result.stdout
+    detail = PdfReader(out / "selected.pdf").pages[0].extract_text()
+    assert {"0", "15"} <= set(detail.split())
+    assert detail.count("24USS") == 1
+    assert "24PR" not in detail
+    assert detail.count("Ensemble") == 1
     assert pd.read_csv(summary_path)["race_id"].tolist() == ["G24PRE", "G24USS"]
+
+    result = subprocess.run(
+        [*cli, "responsiveness-zoom", "--dry-run"], text=True, capture_output=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "--race-ids G24PRE" in result.stdout
+    assert "ceah-zoom.png" in result.stdout
+
+
+def test_ceah_zoom_focuses_on_nearby_vote_shares():
+    races = pd.DataFrame({
+        "abbr": ["22GOV", "18ATG", "24USS", "18GOV", "18AUD", "18USS"],
+        "statewide_dem_share": [0.3723, 0.4776, 0.4788, 0.4792, 0.4804, 0.5327],
+    })
+    panels = build_chunks(races, zoom_panels=2, max_races_per_zoom=6)
+    assert [panel["abbr"].tolist() for panel in panels] == [
+        ["18ATG", "24USS"], ["18GOV", "18AUD"],
+    ]
+    assert build_chunks(races.iloc[[0, -1]], zoom_panels=4, max_races_per_zoom=6) == []
 
 
 def test_cache_normalizes_numeric_string_node_ids(inputs):
