@@ -6,7 +6,13 @@ from pathlib import Path
 
 from atlas_posthoc_plus.config import ConfigError, load_config
 from atlas_posthoc_plus.preflight import check_workflow, dependency_checks, print_checks
-from atlas_posthoc_plus.registry import SUITES, WORKFLOWS, get_workflow, workflow_for_mode
+from atlas_posthoc_plus.registry import (
+    SUITES,
+    WORKFLOW_ALIASES,
+    WORKFLOWS,
+    get_workflow,
+    workflow_for_mode,
+)
 from atlas_posthoc_plus.runner import prepare_workflow, run_workflow
 from atlas_posthoc_plus.suite import run_suite
 from atlas_posthoc_plus.template import EXAMPLE_CONFIG
@@ -41,14 +47,16 @@ def _parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("list", help="List available workflows and pipelines.")
 
+    workflow_choices = sorted(WORKFLOWS)
+    workflow_aliases = {"type": lambda name: WORKFLOW_ALIASES.get(name, name)}
     show = subparsers.add_parser("show", help="Print the resolved command for a workflow.")
-    show.add_argument("workflow", choices=sorted(WORKFLOWS))
+    show.add_argument("workflow", choices=workflow_choices, **workflow_aliases)
 
     doctor = subparsers.add_parser("doctor", help="Validate dependencies and workflow inputs.")
-    doctor.add_argument("workflow", nargs="?", choices=sorted(WORKFLOWS))
+    doctor.add_argument("workflow", nargs="?", choices=workflow_choices, **workflow_aliases)
 
     run = subparsers.add_parser("run", help="Run one workflow.")
-    run.add_argument("workflow", choices=sorted(WORKFLOWS))
+    run.add_argument("workflow", choices=workflow_choices, **workflow_aliases)
     run.add_argument("--dry-run", action="store_true")
 
     suite = subparsers.add_parser("suite", help="Run a named analysis suite.")

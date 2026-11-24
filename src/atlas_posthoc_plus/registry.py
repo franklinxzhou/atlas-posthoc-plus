@@ -8,6 +8,29 @@ from atlas_posthoc_plus.config import ConfigError, ProjectConfig
 
 BindingKind = Literal["value", "path", "values", "paths", "flag", "path_mapping"]
 
+WORKFLOW_ALIASES = {"responsiveness": "ceah", "responsiveness-zoom": "ceah-zoom"}
+_CEAH_CONFIG_ALIASES = {
+    "workflow.ceah": "workflow.responsiveness",
+    "workflow.ceah-zoom": "workflow.responsiveness-zoom",
+    "outputs.ceah_dir": "outputs.responsiveness_dir",
+    "outputs.ceah_election_cache": "outputs.responsiveness_election_cache",
+    "outputs.ceah_public_seats": "outputs.responsiveness_public_seats",
+    "outputs.ceah_zoom": "outputs.responsiveness_zoom",
+    "outputs.ceah_public_zoom": "outputs.responsiveness_public_zoom",
+}
+
+
+def _config_value(config: ProjectConfig, key: str) -> Any:
+    value = config.get(key)
+    if value is None:
+        section, _, option = key.rpartition(".")
+        alias = _CEAH_CONFIG_ALIASES.get(key)
+        if alias is None and section in _CEAH_CONFIG_ALIASES:
+            alias = f"{_CEAH_CONFIG_ALIASES[section]}.{option}"
+        if alias is not None:
+            value = config.get(alias)
+    return value
+
 
 @dataclass(frozen=True)
 class OutputDefault:
@@ -66,7 +89,7 @@ class WorkflowSpec:
         if self.config_flag is not None:
             args.extend((self.config_flag, str(config.path)))
         for binding in self.bindings:
-            value = config.get(binding.key)
+            value = _config_value(config, binding.key)
             if value is None:
                 value = binding.default
             if isinstance(value, OutputDefault):
@@ -116,7 +139,9 @@ class WorkflowSpec:
 
             args.extend([binding.flag, str(value)])
 
-        extra = config.get(f"workflow.{self.name}.extra_args", [])
+        extra = _config_value(config, f"workflow.{self.name}.extra_args")
+        if extra is None:
+            extra = []
         if not isinstance(extra, list):
             raise ConfigError(f"workflow.{self.name}.extra_args must be a list")
         args.extend(str(item) for item in extra)
@@ -1310,17 +1335,17 @@ _register(
 
 _register(
     WorkflowSpec(
-        "responsiveness",
+        "ceah",
         "atlas_posthoc_plus.workflows.elections.responsiveness",
         "elections",
-        "Allocate statewide elections and plot seat responsiveness across races.",
+        "Allocate statewide elections and draw the CEAH plot.",
         (
             GRAPH,
             Binding("--target-precincts", "inputs.target_precincts", "path", required=True),
             CHAINS,
-            Binding("--race-ids", "workflow.responsiveness.race_ids", "values"),
-            Binding("--election-cache-dir", "outputs.responsiveness_election_cache", "path"),
-            Binding("--election-cache-mode", "workflow.responsiveness.election_cache_mode"),
+            Binding("--race-ids", "workflow.ceah.race_ids", "values"),
+            Binding("--election-cache-dir", "outputs.ceah_election_cache", "path"),
+            Binding("--election-cache-mode", "workflow.ceah.election_cache_mode"),
             Binding("--election-layer", "elections.layers", "path_mapping", required=True),
             CROSSWALK,
             ENACTED,
@@ -1328,22 +1353,24 @@ _register(
             REMEDIAL,
             Binding(
                 "--output-dir",
-                "outputs.responsiveness_dir",
+                "outputs.ceah_dir",
                 "path",
                 default=OutputDefault("responsiveness"),
             ),
+            Binding("--output", "outputs.ceah", "path"),
+            Binding("--title", "workflow.ceah.title"),
             MAX_COUNTY,
             MAX_MAPS,
             N_DISTRICTS,
             Binding("--public-plan-dir", "inputs.public_plan_dir", "path"),
             Binding(
                 "--overlay-public-plans",
-                "workflow.responsiveness.overlay_public_plans",
+                "workflow.ceah.overlay_public_plans",
                 "flag",
             ),
             Binding(
                 "--public-seats-output",
-                "outputs.responsiveness_public_seats",
+                "outputs.ceah_public_seats",
                 "path",
                 default=OutputDefault(
                     "responsiveness/oh_responsiveness_public_plan_seats.csv"
@@ -1355,10 +1382,10 @@ _register(
 
 _register(
     WorkflowSpec(
-        "responsiveness-zoom",
+        "ceah-zoom",
         "atlas_posthoc_plus.workflows.elections.responsiveness_zoom",
         "elections",
-        "Create zoomed responsiveness panels from previously generated CSVs.",
+        "Draw the CEAH plot with linked detail panels from saved CSVs.",
         (
             Binding(
                 "--race-summary",
@@ -1390,26 +1417,30 @@ _register(
             ),
             Binding(
                 "--overlay-public-plans",
-                "workflow.responsiveness.overlay_public_plans",
+                "workflow.ceah.overlay_public_plans",
                 "flag",
             ),
             Binding(
                 "--output",
-                "outputs.responsiveness_zoom",
+                "outputs.ceah_zoom",
                 "path",
-                default=OutputDefault("responsiveness/responsiveness-zoom.png"),
+                default=OutputDefault("responsiveness/ceah-zoom.png"),
             ),
             Binding(
                 "--public-output",
-                "outputs.responsiveness_public_zoom",
+                "outputs.ceah_public_zoom",
                 "path",
                 default=OutputDefault(
-                    "responsiveness/responsiveness-zoom-public-plans.png"
+                    "responsiveness/ceah-zoom-public-plans.png"
                 ),
             ),
-            Binding("--race-ids", "workflow.responsiveness-zoom.race_ids", "values"),
+            Binding("--race-ids", "workflow.ceah-zoom.race_ids", "values"),
+            Binding("--title", "workflow.ceah-zoom.title"),
+            Binding("--zoom-panels", "workflow.ceah-zoom.zoom_panels"),
+            Binding("--max-races-per-zoom", "workflow.ceah-zoom.max_races_per_zoom"),
             N_DISTRICTS,
         ),
+        uses_chain_sweep=False,
     )
 )
 
@@ -1471,7 +1502,7 @@ PIPELINES: dict[str, tuple[str, ...]] = {
         "polsby-trace",
         "ranked-vote-cvap",
         "regional-african-american-cvap",
-        "responsiveness",
+        "ceah",
     ),
     "municipal": (
         "municipal-histograms",
@@ -1495,7 +1526,7 @@ PIPELINES["full"] = (
     "polsby-histogram",
     "reock-histogram",
     *PIPELINES["municipal"],
-    "responsiveness-zoom",
+    "ceah-zoom",
     "partisan-asymmetry",
 )
 
@@ -1534,7 +1565,7 @@ def workflow_for_mode(spec: WorkflowSpec, municipality_mode: str) -> WorkflowSpe
 
 def get_workflow(name: str, *, municipality_mode: str = "") -> WorkflowSpec:
     try:
-        spec = WORKFLOWS[name]
+        spec = WORKFLOWS[WORKFLOW_ALIASES.get(name, name)]
     except KeyError as exc:
         choices = ", ".join(sorted(WORKFLOWS))
         raise ConfigError(f"unknown workflow {name!r}; choose from: {choices}") from exc

@@ -1,4 +1,4 @@
-"""Flushed stage timing and heartbeats for batch responsiveness jobs."""
+"""Flushed stage timing and heartbeats for batch CEAH jobs."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ class Progress:
         self.started = perf_counter()
 
     def log(self, message):
-        print(f"[responsiveness +{perf_counter() - self.started:.1f}s] {message}", flush=True)
+        print(f"[CEAH +{perf_counter() - self.started:.1f}s] {message}", flush=True)
 
     @contextmanager
     def stage(self, label, *, heartbeat=True):
