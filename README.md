@@ -428,6 +428,46 @@ close-win share minus the Republican close-win share, in percentage points.
 The summary also gives each party's closest win and the signed margin at the
 majority cutoff, after ordering districts from most to least Democratic.
 
+### Reciprocal seats-votes curves and ensemble scores
+
+The same workflow writes a separate PDF for each official plan under
+`<output-stem>-swing/`. Each curve shows the seats won by its party when it
+receives 50% to 55% of the statewide two-party vote. The calculation adds the
+same share swing to each district at its observed two-party turnout. The
+workflow averages the seat curves across elections, then integrates the
+absolute vertical gap over the exact district flip intervals. The gray area
+has units of seats × percentage points. Dividing the area by five gives the
+average absolute seat gap over the displayed vote range.
+
+By default the swing analysis uses the votes in `inputs.district_votes_csv`.
+To use multiple elections, set `inputs.official_swing_votes_csv` to a separate
+CSV with `plan,race_id,district,dem_votes,rep_votes`. Supply the same districts
+for every race on a plan. Inputs use the same races, district count, and
+statewide Democratic two-party share across plans.
+
+Configure either preaggregated ensemble district votes or saved AtlasIO chains:
+
+- Set `inputs.ensemble_swing_votes_csvs` to a list of CSVs with
+  `chain_id,map_index,race_id,district,dem_votes,rep_votes`. Each map must occur
+  entirely in one file. Omit `race_id` from both official and ensemble inputs
+  for a single unnamed election. If only district shares are available, both
+  swing CSV types also accept `dem_share,statewide_dem_share` in place of the
+  two vote counts. Both shares are fractions from 0 to 1 and the statewide
+  share must come from turnout-weighted totals for the same election.
+- Set `inputs.ensemble_swing_node_votes_csv` to a CSV with
+  `node_id,race_id,dem_votes,rep_votes`, with votes already allocated to every
+  graph node for every race. Set `workflow.partisan-asymmetry.ensemble_graph`
+  to the matching graph JSON and `workflow.partisan-asymmetry.ensemble_chains`
+  to a list of AtlasIO files. The workflow scores every saved map record in
+  those files in order, with no thinning or compliance exclusions.
+
+Each run writes `official-thresholds.csv`, `official-curves.csv`, and
+`official-scores.csv`. These record district-level votes and flip points,
+the average seat counts and area contribution on each interval, and the
+total area and mean seat gap for each plan. With ensemble inputs, it writes
+the corresponding `ensemble-*.csv` files, plus `ensemble-histogram.pdf` and
+`ensemble-histogram-bins.csv`. The histogram overlays the official scores.
+
 ### Recasting precinct-level returns
 
 `recast-precinct-votes` aggregates the same precinct returns under three plans
@@ -802,7 +842,7 @@ layer covering the manifest's metro areas.
 | `reock-histogram` | `workflows.compactness.reock_histogram` | Reock histogram with public/official overlays |
 | `ranked-vote-cvap` | `workflows.demographics.ranked_vote_cvap` | Vote/CVAP ranked comparison |
 | `regional-african-american-cvap` | `workflows.demographics.regional_black_cvap` | District-level CUA/MSA African American-CVAP location quotients |
-| `partisan-asymmetry` | `workflows.elections.partisan_asymmetry` | Three-plan district margin comparison and near-zero zoom |
+| `partisan-asymmetry` | `workflows.elections.partisan_asymmetry` | District margins, official swing curves, and ensemble asymmetry areas |
 | `recast-precinct-votes` | `workflows.elections.recast_precinct_votes` | Recast precinct returns on three maps with a source-map reconciliation |
 | `ceah` | `workflows.elections.responsiveness` | CEAH overview and election CSVs. [Race-selection runbook](docs/ceah.md) |
 | `ceah-zoom` | `workflows.elections.responsiveness_zoom` | CEAH overview with linked detail panels. [Try race selections](docs/ceah.md#try-different-figures-from-existing-csvs) |
