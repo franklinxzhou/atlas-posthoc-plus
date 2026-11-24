@@ -1346,7 +1346,6 @@ def plot_tradeoff(
             zorder=30,
         )
 
-    ax.grid(alpha=0.25)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 

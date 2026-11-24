@@ -481,7 +481,6 @@ def plot_histograms(
         handles.append(Line2D([0], [0], label=label, **style))
 
     for ax in axes:
-        ax.grid(True, axis="y", alpha=0.25)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 

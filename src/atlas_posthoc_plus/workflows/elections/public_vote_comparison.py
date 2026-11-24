@@ -130,7 +130,6 @@ def plot_public_plan_comparison(
         ax.yaxis.set_major_formatter(PercentFormatter(1.0, decimals=0))
         ax.set_title(title, pad=10)
         ax.set_axisbelow(True)
-        ax.grid(axis="y", color="#e6e6e6", linewidth=0.6)
         figure_legend(ax, handles=handles, loc="upper left", frameon=False)
         fig.tight_layout()
         destination = save_figure(fig, output_path, dpi=300)

@@ -252,7 +252,6 @@ def _plot_diagnostics(out: Path, plans: pd.DataFrame, references: pd.DataFrame) 
             zorder=3,
         )
     figure_legend(comparison, loc="upper left", frameon=True)
-    comparison.grid(True, axis="y", alpha=0.25)
     comparison.spines[["top", "right"]].set_visible(False)
     for axis in (comparison.xaxis, comparison.yaxis):
         axis.set_major_formatter(StrMethodFormatter("{x:,.0f}"))

@@ -56,7 +56,6 @@ from atlas_posthoc_plus.workflows.demographics.ranked_vote_cvap import (
 
 DUKE_NAVY = "#012169"
 DUKE_NAVY_LIGHT = "#7A99AC"
-GRID_COLOR = "#D8DDE3"
 ENSEMBLE_LABEL = __import__("os").environ.get("ATLAS_POSTHOC_ENSEMBLE_LABEL", "Ensemble")
 DEFAULT_MINIMUM_REGION_CVAP_SHARE = 0.01
 
@@ -1061,7 +1060,6 @@ def plot_geography(
     for ax, _, xlabel in metrics:
         ax.set_ylim(lower, upper)
         ax.set_xlabel(xlabel, labelpad=6)
-        ax.grid(axis="x", color=GRID_COLOR, linewidth=0.55, zorder=0)
         ax.set_axisbelow(True)
         ax.spines["left"].set_visible(False)
         ax.spines["right"].set_visible(False)

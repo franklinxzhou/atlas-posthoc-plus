@@ -308,7 +308,6 @@ def draw_ridgeline_panel(
     ax.set_ylim(*ylim)
     ax.set_xticks(range(0, n_districts + 1))
     ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
-    ax.grid(axis="both", alpha=0.18)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
@@ -436,7 +435,6 @@ def draw_public_multiplicity_panel(
     ax.set_ylim(*ylim)
     ax.set_xticks(range(0, n_districts + 1))
     ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
-    ax.grid(axis="both", alpha=0.18)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     return grouped

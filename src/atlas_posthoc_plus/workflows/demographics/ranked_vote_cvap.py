@@ -1055,7 +1055,6 @@ def draw_rank_panel(
     if percent_axis:
         ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
 
-    ax.grid(axis="y", alpha=0.25)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 

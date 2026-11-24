@@ -121,7 +121,6 @@ def _histogram(ax: Axes, edges: np.ndarray, heights: np.ndarray) -> None:
     ax.xaxis.set_major_locator(MaxNLocator(nbins=5))
     ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
     ax.set_axisbelow(True)
-    ax.grid(color="0.57", linestyle=":", linewidth=0.55)
 
 
 def plot_tradeoff_histograms(

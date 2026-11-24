@@ -115,10 +115,8 @@ def plot_margins(
         overview.hlines(rows, ranges["min"], ranges["max"], color="#C8C8C8", linewidth=1.6)
         zoom.axvspan(-close_pp, 0, color="#FBF1EE", zorder=0)
         zoom.axvspan(0, close_pp, color="#EAF2FA", zorder=0)
-        zoom.hlines(rows, -close_pp, close_pp, color="#DADADD", linewidth=0.5, zorder=1)
         for axis in (overview, zoom):
             axis.set_axisbelow(True)
-            axis.grid(axis="x", color="#E4E4E4", linewidth=0.7)
             axis.axvline(0, color="#292929", linewidth=1.0, zorder=2)
             axis.set_xlabel("Margin, Democratic minus Republican (percentage points)")
             axis.xaxis.set_major_locator(MaxNLocator(nbins=6, symmetric=axis is zoom))
