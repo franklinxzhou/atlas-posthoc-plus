@@ -30,9 +30,14 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from atlas_posthoc_plus.paper import figure_legend, official_plan_style, save_figure
+from atlas_posthoc_plus.paper import save_figure
 from atlas_posthoc_plus.workflows.elections.public_vote_comparison import (
     plot_public_plan_comparison,
+)
+from atlas_posthoc_plus.workflows.elections.vote_comparison_plot import (
+    POOLED_BOX_WIDTH,
+    format_vote_comparison,
+    plot_reference_plan,
 )
 
 import matplotlib
@@ -61,7 +66,6 @@ from atlas_posthoc.plotting.marginals import (
 
 
 _CHAIN_BOX_WIDTH = 0.10
-_POOLED_BOX_WIDTH = 0.30
 
 
 # =============================================================================
@@ -230,25 +234,6 @@ def iter_districtings_from_chain(chain_path: Path):
                     f"line {line_no}: {e}"
                 )
                 continue
-
-
-def ordered_rank_labels(n_districts: int) -> list[str]:
-    labels: list[str] = []
-    mid = n_districts // 2 + 1
-
-    for rank in range(1, n_districts + 1):
-        if rank == 1:
-            labels.append("Most Rep")
-        elif rank < mid:
-            labels.append(f"{rank}")
-        elif rank == mid:
-            labels.append("Median")
-        elif rank == n_districts:
-            labels.append("Most Dem")
-        else:
-            labels.append(f"{n_districts - rank + 1}")
-
-    return labels
 
 
 def infer_column(columns: list[str], candidates: list[str], fallback_index: int) -> str:
@@ -1003,7 +988,7 @@ def plot_comparison_using_atlas_posthoc(
     fig, ax = plot_vote_share_boxplots(
         plot_runs,
         observable_kind="vote_share",
-        box_width=_POOLED_BOX_WIDTH if pool_chains else _CHAIN_BOX_WIDTH,
+        box_width=POOLED_BOX_WIDTH if pool_chains else _CHAIN_BOX_WIDTH,
         title=title,
         y_limits=y_limits,
         output_path=None,
@@ -1047,40 +1032,12 @@ def plot_comparison_using_atlas_posthoc(
     # Highlighted plans: colored lines
     highlighted = external_long[external_long["plot_role"].str.lower() != "public"]
 
-    marker_cycle = ["o", "s", "^", "D", "P", "X"]
-    color_cycle = [
-        "tab:purple",
-        "tab:green",
-        "tab:red",
-        "tab:orange",
-        "tab:blue",
-        "tab:brown",
-    ]
-
     for idx, (plan_id, g) in enumerate(highlighted.groupby("plan_id")):
         g = g.sort_values("rank")
         label = str(g["plan_group"].iloc[0]) if "plan_group" in g.columns else plan_id
+        plot_reference_plan(ax, g["rank"], g["dem_share"], label, idx)
 
-        ax.plot(
-            g["rank"],
-            g["dem_share"],
-            **official_plan_style(
-                label,
-                marker=marker_cycle[idx % len(marker_cycle)],
-                color=color_cycle[idx % len(color_cycle)],
-            ),
-            linewidth=1.6,
-            markersize=4.5,
-            label=label,
-            zorder=3,
-        )
-
-    ax.set_xlabel("Districts ordered from most Republican to most Democratic")
-    ax.set_ylabel("Democratic two-party vote share")
-    ax.set_xlim(0.4, n_districts + 0.6)
-    ax.set_xticks(x)
-    ax.set_xticklabels(ordered_rank_labels(n_districts))
-    figure_legend(ax, loc="lower right", frameon=True, fontsize=9)
+    format_vote_comparison(ax, x)
 
     fig.tight_layout()
     output_path = save_figure(fig, output_path, dpi=300)

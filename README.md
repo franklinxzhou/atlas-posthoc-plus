@@ -491,11 +491,11 @@ For a clearer public-plan comparison, `vote-comparison-adjusted` also writes
 `workflow.vote-comparison-adjusted.overlay_public_plans = true`. This figure
 uses the same election as the vote comparison (2020 presidential by default).
 Districts are sorted within each plan from most Republican to most Democratic.
-Each box summarizes the submitted plans at that rank: the box spans the middle
-50%, the line marks the median, and whiskers span the full range. The three
-official plans are overlaid with distinct colors, line styles, and marker
-shapes; they do not contribute to the boxes. A dashed line marks the 50% winning
-threshold. Set `outputs.public_vote_comparison` to choose another output path.
+Each box spans the middle 50% of submitted plans at that rank. The line marks
+the median, the dot marks the mean, and the whiskers span the full range. The
+three official plans appear as overlays with distinct colors and marker shapes.
+A horizontal line marks the 50% winning threshold. Set
+`outputs.public_vote_comparison` to choose another output path.
 
 To pair the zoomed CEAH plot with the public-plan ordered vote-share figure,
 configure `figure-compositor` with `responsiveness/ceah-zoom.pdf` and
@@ -649,37 +649,6 @@ The workflow scores configured `[plans]` assignments using
 These inputs use the same schemas as the Polsby-Popper overlays and supply
 plan-level scores. If no official reference is configured, `official-summary.csv`
 contains only the header.
-
-### Comparison with Greg's scripts
-
-- **Polsby-Popper.** Both implementations use `4πA/P²`. Greg's graph-style
-  calculation sums unit areas, adds each exterior border once, and adds
-  each cut border to both districts. The package's graph-based public scoring
-  applies the same rule after mapping block plans to graph nodes through a
-  weighted crosswalk. It skips edges touching unmatched nodes. The ensemble
-  trace converts the sampler's stored `P²/A` to Polsby-Popper. The official
-  and optional block-based public calculations measure area and perimeter after
-  dissolving projected block polygons, so agreement with graph scores depends
-  on matching assignments, geometry, and measurement conventions.
-- **Greg's border reader.** A descending FID pair `(a, b)` is stored as
-  `(b, b)` in `getFidPairToData`. The scoring loop treats that pair as internal
-  and omits the boundary. On a two-district fixture, correctly ordered borders
-  matched the dissolved scores. Reversing one cut edge changed the first
-  district's score from 0.698 to 1.005 in Greg's implementation.
-- **Joining and dissolving geometry.** Greg maps GEOIDs to feature IDs, fills
-  a plan array by FID, and then dissolves the cluster layer by district in its
-  source CRS. Correct alignment depends on the FIDs matching shapefile row
-  positions. The package's block workflow joins assignments by normalized
-  GEOID, reports the match rate, checks the district count, and dissolves
-  after projecting. The Reock ensemble workflow joins the unit layer to graph
-  nodes by key and requires geometry for every node.
-- **Reock.** The new workflow uses Greg's ratio of dissolved district area
-  to the area of the minimum enclosing circle of its convex hull. Shapely/GEOS
-  supplies the circle radius, and the area is calculated as `πr²`. The scores
-  matched Greg's circle helper on a rectangle, a triangle, a multipart district,
-  and a polygon with a hole. Greg's `pairDownReock` keeps plans only when every
-  district clears a threshold. The histogram includes all sampled plans after
-  thinning and burn-in, preserving the low-score tail.
 
 ## Comparing arbitrary municipal trace collections
 
