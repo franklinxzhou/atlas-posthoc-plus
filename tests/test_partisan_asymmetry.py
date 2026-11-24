@@ -1,7 +1,9 @@
+import sys
 from itertools import pairwise
 
 import pandas as pd
 import pytest
+from pypdf import PdfReader
 
 from atlas_posthoc_plus.workflows.elections import partisan_asymmetry
 from atlas_posthoc_plus.workflows.elections.partisan_asymmetry import (
@@ -149,3 +151,26 @@ def test_swing_area_uses_exact_breakpoints_and_averages_curves_first():
     assert a.area == pytest.approx(2)
     average = swing_result(votes)
     assert average.area == pytest.approx(0)
+
+
+def test_partisan_asymmetry_writes_swing_pdfs_and_audit_csvs(tmp_path, monkeypatch):
+    districts = [(1, 40, 60), (2, 48, 52), (3, 62, 38)]
+    official = pd.DataFrame(
+        [(plan, district, dem, rep, dem + rep) for plan in ("A", "B", "C")
+         for district, dem, rep in districts],
+        columns=["plan", "district", "dem_votes", "rep_votes", "total_votes"],
+    )
+    official_path = tmp_path / "official.csv"
+    official.to_csv(official_path, index=False)
+    output = tmp_path / "result.pdf"
+    args = ["partisan-asymmetry", "--district-votes", str(official_path), "--output", str(output)]
+    monkeypatch.setattr(sys, "argv", args)
+    partisan_asymmetry.main()
+
+    swing = tmp_path / "result-swing"
+    assert len(list(swing.glob("0?-*.pdf"))) == 3
+    assert len(pd.read_csv(swing / "official-thresholds.csv")) == 9
+    scores = pd.read_csv(swing / "official-scores.csv")
+    assert scores["area_seat_pp"].tolist() == pytest.approx([2, 2, 2])
+    for panel in swing.glob("0?-*.pdf"):
+        assert len(PdfReader(panel).pages) == 1

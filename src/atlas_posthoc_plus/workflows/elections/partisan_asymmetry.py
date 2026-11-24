@@ -1,4 +1,4 @@
-"""Compare partisan asymmetry in the same election's district margins across three plans."""
+"""Compare district margins and score partisan asymmetry from reciprocal seat curves."""
 
 from __future__ import annotations
 
@@ -25,6 +25,11 @@ from atlas_posthoc_plus.paper import (
     official_plan_style,
     paper_mode_enabled,
     save_figure,
+)
+from atlas_posthoc_plus.workflows.elections.partisan_swing import (
+    official_votes,
+    read_vote_table,
+    write_swing_analysis,
 )
 
 VOTE_COLUMNS = ["dem_votes", "rep_votes", "total_votes"]
@@ -219,11 +224,19 @@ def main() -> None:
     parser.add_argument("--output", required=True, type=Path, help="Full-range PDF path")
     parser.add_argument("--close-pp", type=float, default=5, help="Close-win summary threshold")
     parser.add_argument("--title")
+    parser.add_argument("--official-swing-votes", type=Path,
+                        help="Optional district vote table for the three official swing curves")
     args = parser.parse_args()
     if not math.isfinite(args.close_pp) or not 0 < args.close_pp <= 100:
         parser.error("--close-pp must be greater than 0 and at most 100")
     try:
         votes = read_margins(args.district_votes)
+        swing_votes = (
+            read_vote_table(args.official_swing_votes, ["plan", "district"])
+            if args.official_swing_votes else votes
+        )
+        swing_output = args.output.with_name(f"{args.output.stem}-swing")
+        write_swing_analysis(swing_output, official_votes(swing_votes))
     except ValueError as error:
         parser.error(str(error))
     summary = summarize_margins(votes, args.close_pp)
@@ -233,6 +246,7 @@ def main() -> None:
     print(f"Wrote {destination}")
     print(f"Wrote {zoom}")
     print(f"Wrote {summary_path}")
+    print(f"Wrote swing PDFs and CSVs in {swing_output}")
 
 
 if __name__ == "__main__":

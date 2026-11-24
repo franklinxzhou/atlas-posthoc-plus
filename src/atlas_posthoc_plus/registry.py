@@ -1316,7 +1316,7 @@ _register(
         "partisan-asymmetry",
         "atlas_posthoc_plus.workflows.elections.partisan_asymmetry",
         "elections",
-        "Compare district margins across three plans and zoom around zero.",
+        "Compare district margins and score official partisan asymmetry.",
         (
             Binding("--district-votes", "inputs.district_votes_csv", "path", required=True),
             Binding(
@@ -1327,6 +1327,7 @@ _register(
             ),
             Binding("--close-pp", "workflow.partisan-asymmetry.close_pp"),
             Binding("--title", "workflow.partisan-asymmetry.title"),
+            Binding("--official-swing-votes", "inputs.official_swing_votes_csv", "path"),
         ),
         uses_chain_sweep=False,
         suite_input_key="inputs.district_votes_csv",

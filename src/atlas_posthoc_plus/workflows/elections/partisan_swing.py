@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import csv
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import numpy as np
 import pandas as pd
@@ -10,6 +14,16 @@ import pandas as pd
 LOWER_VOTE_PCT = 50.0
 UPPER_VOTE_PCT = 55.0
 PARTY_VOTES = ["dem_votes", "rep_votes"]
+MAP_ID = ["chain_id", "map_index"]
+
+
+def read_vote_table(path: Path, identifiers: list[str]) -> pd.DataFrame:
+    """Read district or node votes while preserving the text identifiers."""
+    votes = pd.read_csv(path, dtype={key: "string" for key in [*identifiers, "race_id"]},
+                        keep_default_na=False)
+    if missing := set(identifiers).difference(votes):
+        raise ValueError(f"{path}: missing columns {', '.join(sorted(missing))}")
+    return votes
 
 
 def prepare_vote_table(
@@ -40,6 +54,17 @@ def prepare_vote_table(
     if not (np.isfinite(values) & (values >= 0) & (values <= upper)).all():
         raise ValueError(f"Invalid values in {', '.join(numeric)}")
     return votes[[*keys, *numeric]]
+
+
+@dataclass(frozen=True)
+class Plan:
+    label: str
+    chain_id: str = ""
+    map_index: str = ""
+
+    @property
+    def csv_key(self) -> tuple[str, str, str]:
+        return self.label, self.chain_id, self.map_index
 
 
 @dataclass(frozen=True)
@@ -104,3 +129,91 @@ def swing_result(votes: pd.DataFrame) -> SwingResult:
     dem_seats = np.searchsorted(np.sort(dem_thresholds), edges[:-1], side="right") / race_count
     rep_seats = np.searchsorted(np.sort(rep_thresholds), edges[:-1], side="right") / race_count
     return SwingResult(edges, dem_seats, rep_seats, len(districts), statewide_shares, thresholds)
+
+
+def official_votes(votes: pd.DataFrame) -> Iterator[tuple[Plan, pd.DataFrame]]:
+    votes = prepare_vote_table(votes, ["plan", "district"])
+    for plan, frame in votes.groupby("plan", sort=False):
+        yield Plan(plan), frame
+
+
+def _check_comparable(result: SwingResult, reference: SwingResult) -> None:
+    if result.n_districts != reference.n_districts:
+        raise ValueError(f"Expected {reference.n_districts} districts, found {result.n_districts}")
+    if result.statewide_shares.keys() != reference.statewide_shares.keys():
+        raise ValueError("All plans must cover the same election IDs")
+    for race, share in result.statewide_shares.items():
+        if abs(share - reference.statewide_shares[race]) > 1e-6:
+            raise ValueError(f"{race}: statewide two-party share differs across plans")
+
+
+def _score_and_write(
+    outdir: Path, group: str, plans: Iterable[tuple[Plan, pd.DataFrame]],
+    *, reference: SwingResult | None = None,
+) -> Iterator[tuple[Plan, SwingResult]]:
+    """Write interval-level and district-level audit data without retaining ensemble curves."""
+    seen = set()
+    key = ["plan", *MAP_ID]
+    with (
+        (outdir / f"{group}-thresholds.csv").open("w", newline="", encoding="utf-8") as threshold_file,
+        (outdir / f"{group}-curves.csv").open("w", newline="", encoding="utf-8") as curve_file,
+        (outdir / f"{group}-scores.csv").open("w", newline="", encoding="utf-8") as score_file,
+    ):
+        threshold_writer, curve_writer, score_writer = map(
+            csv.writer, (threshold_file, curve_file, score_file),
+        )
+        threshold_writer.writerow([*key, "race_id", "district", *PARTY_VOTES, "dem_share",
+                                   "statewide_dem_share", "dem_flip_vote_pct", "rep_flip_vote_pct"])
+        curve_writer.writerow([*key, "vote_pct_start", "vote_pct_end", "mean_dem_seats",
+                               "mean_rep_seats", "abs_seat_gap", "area_seat_pp"])
+        score_writer.writerow([*key, "districts", "elections", "race_ids",
+                               "vote_pct_start", "vote_pct_end",
+                               "area_seat_pp", "mean_abs_seat_gap"])
+        for plan, votes in plans:
+            identity = (plan.chain_id, plan.map_index) if plan.chain_id else plan.label
+            if identity in seen:
+                raise ValueError(f"Duplicate {group} plan {identity}")
+            seen.add(identity)
+            try:
+                result = swing_result(votes)
+                if reference is not None:
+                    _check_comparable(result, reference)
+            except ValueError as error:
+                raise ValueError(f"{group} plan {identity}: {error}") from error
+            if reference is None:
+                reference = result
+            threshold_writer.writerows((*plan.csv_key, *threshold) for threshold in result.thresholds)
+            contributions = result.segment_areas
+            curve_writer.writerows(
+                (*plan.csv_key, lo, hi, dem, rep, abs(dem - rep), contribution)
+                for lo, hi, dem, rep, contribution in zip(
+                    result.edges[:-1], result.edges[1:], result.dem_seats, result.rep_seats,
+                    contributions, strict=True,
+                )
+            )
+            area = float(contributions.sum())
+            score_writer.writerow([*plan.csv_key, result.n_districts, len(result.statewide_shares),
+                                   "|".join(result.statewide_shares),
+                                   LOWER_VOTE_PCT, UPPER_VOTE_PCT, area,
+                                   area / (UPPER_VOTE_PCT - LOWER_VOTE_PCT)])
+            yield plan, result
+    if not seen:
+        raise ValueError(f"No {group} plans to score")
+
+
+def write_swing_analysis(
+    output: Path, official: Iterable[tuple[Plan, pd.DataFrame]],
+) -> Path:
+    from atlas_posthoc_plus.workflows.elections.partisan_swing_plot import plot_curves
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(dir=output.parent, prefix=f".{output.name}-") as temp:
+        working = Path(temp)
+        officials = list(_score_and_write(working, "official", official))
+        if len(officials) != 3:
+            raise ValueError("Expected three official plans for the swing analysis")
+        plot_curves(working, officials)
+        output.mkdir(exist_ok=True)
+        for file in working.iterdir():
+            file.replace(output / file.name)
+    return output
